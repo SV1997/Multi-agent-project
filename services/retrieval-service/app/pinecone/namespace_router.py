@@ -16,14 +16,14 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
         namespace=req.namespace
     )
 
-    results = vector_store.similarity_search(
+    results = vector_store.similarity_search_with_score(
         query= req.query,
         k=req.top_k
     )
 
     chunks = [
         RetrievedChunk(
-            content = doc.page_coontet,
+            content = doc.page_content,
             score= float(score),
             source = doc.metadata.get("source", ""),
             metadata = doc.metadata
