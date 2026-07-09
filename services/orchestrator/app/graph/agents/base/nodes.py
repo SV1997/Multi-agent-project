@@ -1,12 +1,11 @@
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../.."))
-
+from ....core.config import INTERNAL_SHARED_SECRET
 import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
 from ...state import AgentState
 from dotenv import load_dotenv
-load_dotenv()
 async def retrieve_context(state:AgentState)-> dict:
     query = state["messages"][-1].content
     namespace= state["domain"]
@@ -19,7 +18,7 @@ async def retrieve_context(state:AgentState)-> dict:
                 "namespace": namespace,
                 "top_k": 5
             },
-            headers={"x-internal-secret": os.environ["INTERNAL_SHARED_SECRET"]}
+            headers={"x-internal-secret": INTERNAL_SHARED_SECRET}
         )
         response.raise_for_status()
         data = response.json()
