@@ -9,6 +9,7 @@ from .agents.legal_agent.graph import legal_agent
 from .prompts.supervisor_routing import SUPERVISOR_ROUTE_PROMPT
 from .agents.hr_agent.graph import hr_agent
 from .agents.engineering_agent.graph import engineering_agent
+from .agents.support_agent.graph import support_agent
 
 
 def set_supervisor_agent():
@@ -39,12 +40,13 @@ def set_supervisor_agent():
     graph.add_node("legal_agent", legal_agent)
     graph.add_node("hr_agent", hr_agent)
     graph.add_node("engineering_agent", engineering_agent)
+    graph.add_node("support_agent", support_agent)
     graph.add_conditional_edges(
         "classify_domain", route_to_agent,{
             "legal":"legal_agent",
             "hr" : "hr_agent",
             "coding": "legal_agent",
-            "support": "legal_agent",
+            "support": "support_agent",
             "engineering": "engineering_agent",
         }
     )
@@ -52,6 +54,7 @@ def set_supervisor_agent():
     graph.add_edge("legal_agent", END)
     graph.add_edge("hr_agent", END)
     graph.add_edge("engineering_agent", END)
+    graph.add_edge("support_agent", END)
     return graph.compile()
 
 
