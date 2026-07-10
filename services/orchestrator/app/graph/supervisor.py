@@ -11,12 +11,16 @@ from .agents.hr_agent.graph import hr_agent
 from .agents.engineering_agent.graph import engineering_agent
 from .agents.support_agent.graph import support_agent
 from .agents.coding_agent.graph import coding_agent
+from langgraph.checkpoint.memory import MemorySaver
+from .hitl.interrupts import human_review_gate
+
+checkpointer = MemorySaver()
 
 def set_supervisor_agent():
     class DomainClassification(BaseModel):
         domain: Literal["legal","hr","engineering","coding","support"] = Field(description="It provide routing detail for the tool base on the literal")
 
-    classifier_llm = init_chat_model(model="groq:llama-3.3-70b-versatile", temperature=0, streaming=True).with_structured_output(DomainClassification)
+    classifier_llm = init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0, streaming=True).with_structured_output(DomainClassification, method="json_schema", strict=True)
 
     async def classify_domain(state: AgentState)-> dict:
         prompt = SUPERVISOR_ROUTE_PROMPT
@@ -42,6 +46,7 @@ def set_supervisor_agent():
     graph.add_node("engineering_agent", engineering_agent)
     graph.add_node("support_agent", support_agent)
     graph.add_node("coding_agent", coding_agent)
+    graph.add_node("human_review_gate",human_review_gate)
     graph.add_conditional_edges(
         "classify_domain", route_to_agent,{
             "legal":"legal_agent",
@@ -51,12 +56,13 @@ def set_supervisor_agent():
             "engineering": "engineering_agent",
         }
     )
-    graph.add_edge("coding_agent", END)
-    graph.add_edge("legal_agent", END)
-    graph.add_edge("hr_agent", END)
-    graph.add_edge("engineering_agent", END)
-    graph.add_edge("support_agent", END)
-    return graph.compile()
+    graph.add_edge("coding_agent", "human_review_gate")
+    graph.add_edge("legal_agent", "human_review_gate")
+    graph.add_edge("hr_agent", "human_review_gate")
+    graph.add_edge("engineering_agent", "human_review_gate")
+    graph.add_edge("support_agent", "human_review_gate")
+    graph.add_edge("human_review_gate", END)
+    return graph.compile(checkpointer=checkpointer)
 
 
 supervisor = set_supervisor_agent()
