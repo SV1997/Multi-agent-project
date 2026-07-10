@@ -3,7 +3,7 @@ from .prompt import CODING_AGENT_PROMPT
 from .tools import check_for_bug
 from langchain.chat_models import init_chat_model
 
-llm = init_chat_model(model="groq:llama-3.3-70b-versatile", temperature=0.2, streaming=True)
+llm = init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0.2, streaming=True)
 
 coding_agent = build_domain_agent(
     llm=llm,

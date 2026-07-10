@@ -3,7 +3,11 @@ from ...state import AgentState
 from langgraph.prebuilt import ToolNode
 from langchain.messages import HumanMessage, SystemMessage, AIMessage
 from .nodes import retrieve_context, build_context_prompt
-from langchain_core.prompts import ChatPromptTemplate
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
+from shared.contracts.schema import AgentAnswer, AgentAnswerLLM
+
 def route_after_reason(state:AgentState)-> str:
     msg = state["messages"][-1]
     if hasattr(msg, "tool_calls") and msg.tool_calls:
@@ -21,6 +25,7 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
     tool = tools or []
     graph = StateGraph(AgentState)
     graph.add_node("retrieve", retrieve_context)
+    structured_llm = llm.with_structured_output(AgentAnswerLLM, method="json_schema", strict=True)
     llm_with_tools = llm.bind_tools(tools) if tool else llm
 
     async def reason(state:AgentState)-> dict:
@@ -43,9 +48,35 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
 
         # Once out of tool calls, force a final natural-language answer
         # instead of letting the model emit another (unexecuted) tool call.
-        active_llm = llm_with_tools if remaining > 0 else llm
-        res = await active_llm.ainvoke(messages)
-        return {"messages":[res], "tool_calls_remaining": remaining-1}
+        if remaining<=0:
+            answer = await structured_llm.ainvoke(messages)
+            return{
+                "domain": domain_name,
+                "messages": [AIMessage(content = answer.answer)],
+                "final_answer": answer.model_dump(),
+                "requires_human_reviews": answer.requires_human_review,
+                "tool_calls_remaining":0
+
+            }
+        
+        res = await llm_with_tools.ainvoke(messages)
+
+        if res.tool_calls:
+            return{
+                "messages": [res],
+                "tool_calls_remaining": remaining-1
+            }
+        
+        answer = await structured_llm.ainvoke(messages+[res])
+
+        return{
+            "domain": domain_name,
+                "messages": [AIMessage(content = answer.answer)],
+                "final_answer": answer.model_dump(),
+                "requires_human_reviews": answer.requires_human_review,
+                "tool_calls_remaining":remaining-1
+
+            }
     
     graph.add_node("reason", reason)
     graph.set_entry_point("retrieve")
