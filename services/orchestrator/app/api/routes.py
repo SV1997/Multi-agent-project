@@ -88,7 +88,7 @@ async def resume_query(req: RequestResume):
         "domain": result["domain"],
         "answer": result["final_answer"]["answer"], 
         "sources": [chunk.get("source", "unknown") for chunk in result["retrieved_context"]],
-        "confidence": 0.5,
+        "confidence": result["final_answer"]["confidence"],
         "requires_human_review": result["requires_human_reviews"],
         "generated_at": datetime.now()
     }
