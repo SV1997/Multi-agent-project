@@ -89,7 +89,7 @@ class EvalResponse(BaseModel):
 
 class OrchestratorRequest(BaseModel):
     query: str
-    # user_id: str
+    allowed_namespace: list[str]
 
 class RevisedAnswer(BaseModel):
     revised_answer: str
