@@ -22,8 +22,9 @@ async def event_generator(req:OrchestratorRequest):
         "domain": None,
         "retrieved_context": [],
         "tool_calls_remaining":3,
-        "requires_human_reviews": False,
-        "final_answer": None
+        "requires_human_review": False,
+        "final_answer": None,
+        "allowed_namespace": req.allowed_namespace
     }
 
     async for event in supervisor.astream_events(initital_state, version="v1", config=config):
@@ -52,8 +53,9 @@ async def orchatrator_query(req:OrchestratorRequest):
         "domain": None,
         "retrieved_context": [],
         "tool_calls_remaining":3,
-        "requires_human_reviews": False,
-        "final_answer": None
+        "requires_human_review": False,
+        "final_answer": None,
+        "allowed_namespace": req.allowed_namespace
     }, config=config)
     print(True if "__interrupt__" in result else None)
     if "__interrupt__" in result:
@@ -67,8 +69,8 @@ async def orchatrator_query(req:OrchestratorRequest):
         "domain": result["domain"],
         "answer": result["messages"][-1].content,
         "sources": [chunk.get("source", "unknown") for chunk in result["retrieved_context"]],
-        "confidence":0.5,
-        "requires_human_review": result["requires_human_reviews"],
+        "confidence":result["final_answer"]["confidence"],
+        "requires_human_review": result["requires_human_review"],
         "generated_at": datetime.now()
     }
     return final_res
@@ -89,7 +91,7 @@ async def resume_query(req: RequestResume):
         "answer": result["final_answer"]["answer"], 
         "sources": [chunk.get("source", "unknown") for chunk in result["retrieved_context"]],
         "confidence": result["final_answer"]["confidence"],
-        "requires_human_review": result["requires_human_reviews"],
+        "requires_human_review": result["requires_human_review"],
         "generated_at": datetime.now()
     }
 
