@@ -7,6 +7,8 @@ class AgentState(TypedDict):
     retrieved_context: list[dict]
     tool_calls_remaining: int
     final_answer: dict| None
-    requires_human_reviews: bool
-
+    requires_human_review: bool
+    allowed_namespace: list[str]
+    authorization_denied: bool
+    denied_domain: list[str]
     
