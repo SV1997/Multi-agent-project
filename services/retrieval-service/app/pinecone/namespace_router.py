@@ -14,7 +14,7 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
         embedding=embeddings,
         index_name=PINECONE_INDEX_NAME,
         namespace=req.namespace
-    )
+    )   
 
     results = vector_store.similarity_search_with_score(
         query= req.query,

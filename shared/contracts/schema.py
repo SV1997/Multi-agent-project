@@ -6,7 +6,7 @@ equivalent Zod schema (shared/schemas/contracts.ts) to keep wire format in sync.
 """
 
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Any, Literal
 from datetime import datetime
 
 
@@ -58,6 +58,15 @@ class AgentAnswer(BaseModel):
     requires_human_review: bool = False
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
+class AgentAnswerLLM(BaseModel):
+    confidence: float
+    requires_human_review: bool = False
+
+
+class PausedForReviewResponse(BaseModel):
+    status: Literal["paused_for_review"] = "paused_for_review"
+    review_payload: Any
+    thread_id: str
 
 # ---- Evaluation contracts ----
 
@@ -73,3 +82,19 @@ class EvalResponse(BaseModel):
     answer_relevancy: float
     context_precision: float
     context_recall: float
+
+# ---- Orchesstrator contratcs -----
+
+class OrchestratorRequest(BaseModel):
+    query: str
+    allowed_namespace: list[str]
+
+class RevisedAnswer(BaseModel):
+    revised_answer: str
+    approved: bool
+    edited: bool
+
+class RequestResume(BaseModel):
+    human_response: RevisedAnswer
+    thread_id: str
+
