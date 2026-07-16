@@ -17,7 +17,7 @@ router = APIRouter()
 async def event_generator(req:OrchestratorRequest):
     thread_id = str(uuid4())
     config = {"configurable":{"thread_id": thread_id}}
-    initital_state = {
+    initial_state = {
         "messages":[HumanMessage(content=req.query)],
         "domain": None,
         "retrieved_context": [],
@@ -27,18 +27,24 @@ async def event_generator(req:OrchestratorRequest):
         "allowed_namespace": req.allowed_namespace
     }
 
-    async for event in supervisor.astream_events(initital_state, version="v1", config=config):
+    async for event in supervisor.astream_events(initial_state, version="v1", config=config):
         if event["event"] == "on_chat_model_stream":
-            chunk = event["data"]["chunk"]
-            if chunk.content:
-                yield f"data:{json.dumps({'token': chunk.content})}\n\n"
-    
+            tags = event.get("tags", [])
+            print(tags)
+            if "final-answer" in tags:
+                chunk = event["data"]["chunk"]
+                if chunk.content:
+                    yield f"data:{json.dumps({'token': chunk.content})}\n\n"
+        
     state_snapshot = await supervisor.aget_state(config)
 
     if state_snapshot.interrupts:
         interrupt_data = state_snapshot.interrupts[0].value
         yield f"data:{json.dumps({'status':'paused_for_review', 'review_payload':interrupt_data, 'thread_id':thread_id})}\n\n"
     else:
+        if state_snapshot.values.get("authorization_denied"):
+            denial_text = state_snapshot.values["messages"][-1].content
+            yield f"data:{json.dumps({'token': denial_text})}\n\n"
         yield "data:[DONE]\n\n"
 
 @router.post("/query",
@@ -57,14 +63,14 @@ async def orchatrator_query(req:OrchestratorRequest):
         "final_answer": None,
         "allowed_namespace": req.allowed_namespace
     }, config=config)
-    print(True if "__interrupt__" in result else None)
     if "__interrupt__" in result:
-        return PausedForReviewResponse(
-            review_payload=[interrupt.value for interrupt in result["__interrupt__"]],
-            thread_id=thread_id
-        )
+        print(True if "__interrupt__" in result else None)
+        return {
+            "review_payload":[interrupt.value for interrupt in result["__interrupt__"]],
+            "thread_id":thread_id
+        }
 
-    # print(result)
+    # print(result, "67")
     final_res={
         "domain": result["domain"],
         "answer": result["messages"][-1].content,
@@ -81,6 +87,7 @@ async def orchatrator_query(req:OrchestratorRequest):
     response_model=AgentAnswer | PausedForReviewResponse
 )
 async def resume_query(req: RequestResume):
+    print(req)
     config = {"configurable": {"thread_id": req.thread_id}}
     result = await supervisor.ainvoke(
         Command(resume=req.human_response.model_dump()),

@@ -20,7 +20,7 @@ def set_supervisor_agent():
     class DomainClassification(BaseModel):
         domain: Literal["legal","hr","engineering","coding","support"] = Field(description="It provide routing detail for the tool base on the literal")
 
-    classifier_llm = init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0, streaming=True).with_structured_output(DomainClassification, method="json_schema", strict=True)
+    classifier_llm = init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0, streaming=True).with_structured_output(DomainClassification, method="json_schema", strict=True).with_config(tags=["classification-only"])
 
     async def classify_domain(state: AgentState)-> dict:
         prompt = SUPERVISOR_ROUTE_PROMPT
@@ -38,6 +38,7 @@ def set_supervisor_agent():
     def check_authorization(state:AgentState)->dict:
         allowed = state.get("allowed_namespace")
         classified_domains = [state["domain"]]
+        print(allowed, classified_domains)
         unauthorized = [d for d in classified_domains if d not in allowed]
         if(unauthorized):
             return {"authorization_denied": True, "denied_domain":unauthorized}
