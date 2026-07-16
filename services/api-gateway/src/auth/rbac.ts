@@ -1,8 +1,8 @@
 export const ROLE_NAMESPACE_ACCESS: Record<string,string[]>={
     legal_team:['legal'],
     hr_team:['hr'],
-    engineering_team:['engineerig','coding'],
+    engineering_team:['engineering','coding'],
     support_team: ['support'],
-    guest:['hr','engierrig','coding','support'],
-    admin:['legal','hr','engierrig','coding','support']
+    guest:['hr','engineering','coding','support','legal'],
+    admin:['legal','hr','engineering','coding','support']
 }
