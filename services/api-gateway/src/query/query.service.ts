@@ -86,4 +86,28 @@ export class QueryService {
 
 
     }
+
+  async forwardQueryStreamResume(resumeDto:ResumeDto){
+         const orchestratorUrl = this.configService.get<string>('ORCHESTRATOR_URL')||"";
+         const res = await firstValueFrom(this.httpService.post(`${orchestratorUrl}/stream/resume`,{
+      human_response:resumeDto.human_response,
+        thread_id:resumeDto.thread_id
+    },
+    {
+      headers: {
+        'x-internal-secret': this.configService.get<string>('INTERNAL_SECRET'),
+      },
+      responseType: 'stream'
+    }).pipe(
+            catchError((error:AxiosError)=>{
+                this.logger.error(error.response?.data)
+                throw new InternalServerErrorException('An error occurred while contacting the orchestrator');
+            }
+         )
+        ),
+    )
+    return res.data
+
+
+    }
 }

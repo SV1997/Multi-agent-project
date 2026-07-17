@@ -18,8 +18,8 @@ export class QueryController {
     query(@Body() queryDto:QueryDTO, @Req() req:AuthenticatedRequest){
         return this.queryService.forwardQuery(queryDto.query, req.user.role)
     }
-    // @Roles("admin")
-    // @UseGuards(AuthguardGuard,RoleguardGuard)
+    @Roles("admin")
+    @UseGuards(AuthguardGuard,RoleguardGuard)
     @Post("resume")
     queryResume(@Body() resumeDto:ResumeDto){
         return this.queryService.forwardQueryReume(resumeDto)
@@ -36,5 +36,15 @@ export class QueryController {
 
         stream.pipe(res)
     }
+    @UseGuards(AuthguardGuard)
+    @Post('stream/resume')
+    async queryStreamResume(@Body() resumeDto:ResumeDto, @Res() res:Response){
+        const stream = await this.queryService.forwardQueryStreamResume(resumeDto)
 
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive')
+
+        stream.pipe(res)
+    }
 }
