@@ -4,7 +4,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
 from shared.contracts.schema import IngestionRequest, IngestionResponse
 from fastapi import APIRouter, Depends, HTTPException
 from ..core.security import verify_internal_secret
-from ..embeddings.encoder import load_document
+from ..loader.encoder import load_document
 from ..pinecone.upsert import upsert_document
 from ..chunking.splitter  import split_documents
 
