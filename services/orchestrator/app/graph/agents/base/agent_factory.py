@@ -53,11 +53,12 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
         if remaining<=0:
             answer = await plain_llm.ainvoke(messages)
             return await _finalize_answer(answer, messages, domain_name, sources, remaining)
+
         res = await llm_with_tools.ainvoke(messages)
-        
+
         if res.tool_calls:
             return {"messages":[res], "tool_calls_remaining":remaining-1}
-        
+
         answer_response = await plain_llm.ainvoke(messages)
 
         return await _finalize_answer(answer_response, messages, domain_name, sources, remaining)
