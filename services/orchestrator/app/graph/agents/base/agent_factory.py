@@ -25,8 +25,9 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
     tool = tools or []
     graph = StateGraph(AgentState)
     graph.add_node("retrieve", retrieve_context)
-    structured_llm = llm.with_structured_output(AgentAnswerLLM, method="json_schema", strict=True)
-    llm_with_tools = llm.bind_tools(tools) if tool else llm
+    structured_llm = llm.with_structured_output(AgentAnswerLLM, method="json_schema", strict=True).with_config(tags=["metadata-only"])
+    llm_with_tools = (llm.bind_tools(tools) if tool else llm).with_config(tags=["tool-decision"])
+    plain_llm = llm.with_config(tags=["final-answer"])
 
     async def reason(state:AgentState)-> dict:
 
@@ -48,36 +49,50 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
 
         # Once out of tool calls, force a final natural-language answer
         # instead of letting the model emit another (unexecuted) tool call.
+        sources = [chunk.get("sources", "unknown") for chunk in state.get("retrieved_context") or []]
         if remaining<=0:
-            answer = await structured_llm.ainvoke(messages)
-            return{
-                "domain": domain_name,
-                "messages": [AIMessage(content = answer.answer)],
-                "final_answer": answer.model_dump(),
-                "requires_human_reviews": answer.requires_human_review,
-                "tool_calls_remaining":0
+            answer = await plain_llm.ainvoke(messages)
+            return await _finalize_answer(answer, messages, domain_name, sources, remaining)
 
-            }
-        
         res = await llm_with_tools.ainvoke(messages)
 
         if res.tool_calls:
-            return{
-                "messages": [res],
-                "tool_calls_remaining": remaining-1
-            }
-        
-        answer = await structured_llm.ainvoke(messages+[res])
+            return {"messages":[res], "tool_calls_remaining":remaining-1}
 
-        return{
-            "domain": domain_name,
-                "messages": [AIMessage(content = answer.answer)],
-                "final_answer": answer.model_dump(),
-                "requires_human_reviews": answer.requires_human_review,
-                "tool_calls_remaining":remaining-1
+        answer_response = await plain_llm.ainvoke(messages)
 
-            }
+        return await _finalize_answer(answer_response, messages, domain_name, sources, remaining)
     
+    async def _finalize_answer(answer_response,  messages, domain_name, sources, remaining):
+        """
+    Shared final step for BOTH Case A and Case B.
+    answer_response: the AIMessage containing the natural-language answer 
+                      (already generated, either by plain llm or by 
+                      llm_with_tools when it chose not to call a tool)
+    """
+        metadata_messages = messages + [
+            answer_response,
+            SystemMessage(content="""Given the conversation and the answer above, assess your confidence (0.0 to 1.0) "
+            "and whether this requires human review before being shown to the user. "
+            "If the user explicitly asked for human review, set requires_human_review to true.""")
+        ]
+        metadata = await structured_llm.ainvoke(metadata_messages)
+
+        final_answer = {
+            "domain_name": domain_name,
+            "answer": answer_response.content,
+            "sources": sources,
+            "confidence":metadata.confidence,
+            "requires_human_review": metadata.requires_human_review
+
+        }
+        return {
+            "messages":[answer_response],
+            "final_answer": final_answer,
+            "requires_human_review": metadata.requires_human_review,
+            "tool_calls_remaining":remaining
+        }
+
     graph.add_node("reason", reason)
     graph.set_entry_point("retrieve")
     graph.add_edge("retrieve", "reason")
