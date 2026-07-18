@@ -7,11 +7,15 @@ import { AxiosError } from 'axios';
 import { Logger } from '@nestjs/common';
 import { InternalServerErrorException } from '@nestjs/common';
 import { ResumeDto } from './dto/resume.dto';
+import { PrismaService } from 'src/prisma/prisma.service';
+import { FlagDto } from './dto/flag.dto';
+import { ExceptionsHandler } from '@nestjs/core/exceptions/exceptions-handler';
+
 @Injectable()
 export class QueryService {
     private readonly logger = new Logger(QueryService.name);
     
-    constructor(private httpService:HttpService, private configService:ConfigService){}
+    constructor(private httpService:HttpService, private configService:ConfigService, private prismaService: PrismaService){}
     async forwardQuery(query:string, role:string){
       
          const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || [];
@@ -85,5 +89,45 @@ export class QueryService {
     return res.data
 
 
+    }
+
+  async forwardQueryStreamResume(resumeDto:ResumeDto){
+         const orchestratorUrl = this.configService.get<string>('ORCHESTRATOR_URL')||"";
+         const res = await firstValueFrom(this.httpService.post(`${orchestratorUrl}/stream/resume`,{
+      human_response:resumeDto.human_response,
+        thread_id:resumeDto.thread_id
+    },
+    {
+      headers: {
+        'x-internal-secret': this.configService.get<string>('INTERNAL_SECRET'),
+      },
+      responseType: 'stream'
+    }).pipe(
+            catchError((error:AxiosError)=>{
+                this.logger.error(error.response?.data)
+                throw new InternalServerErrorException('An error occurred while contacting the orchestrator');
+            }
+         )
+        ),
+    )
+    return res.data
+    }
+
+    async recordFlag(flagDto:FlagDto, flaggedByUserId:number){
+      try {
+        const flag=await this.prismaService.flaggedAnswer.create({
+          data:{
+            flaggedByUserId:flaggedByUserId,
+            domain         : flagDto.domain,
+            answer:flagDto.answer,
+            Sources: flagDto.source.map(s => ({ path: s.path, type: s.type })),
+            reason: flagDto.reason||null
+          }
+        })
+
+        return flag
+      } catch (error) {
+        throw new Error("something wrong with query flag" +error)
+      }
     }
 }

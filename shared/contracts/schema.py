@@ -59,8 +59,6 @@ class AgentAnswer(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class AgentAnswerLLM(BaseModel):
-    answer: str
-    sources: list[str]
     confidence: float
     requires_human_review: bool = False
 
