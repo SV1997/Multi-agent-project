@@ -19,7 +19,7 @@ router = APIRouter()
 async def ingest(req:IngestionRequest):
     try:
         all_chunks=[]
-
+        
         for source in req.source:
             docs = load_document(
                 source = source.path,
