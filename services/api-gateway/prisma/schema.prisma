@@ -13,7 +13,7 @@ datasource db {
   provider = "postgresql"
 }
 
-enum Role{
+enum Role {
   guest
   legal_team
   hr_team
@@ -23,12 +23,35 @@ enum Role{
   superadmin
 }
 
-model User{
-  id  Int @id @default(autoincrement())
-  name String
-  Email String @unique
-  role Role @default(guest)
-  password String
-  createdAT DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model User {
+  id             Int             @id @default(autoincrement())
+  name           String
+  Email          String          @unique
+  role           Role            @default(guest)
+  password       String
+  createdAT      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  ingestionLogs  IngestionLog[]
+  flaggedAnswers FlaggedAnswer[]
+}
+
+model IngestionLog {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  user       User     @relation(fields: [user_id], references: [id])
+  namespace  String
+  sources    Json
+  status     String
+  created_At DateTime @default(now())
+}
+
+model FlaggedAnswer {
+  id              Int      @id @default(autoincrement())
+  flaggedByUserId Int
+  user            User     @relation(fields: [flaggedByUserId], references: [id])
+  domain          String
+  answer          String
+  Sources         Json
+  reason          String?
+  created_At      DateTime @default(now())
 }

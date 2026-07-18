@@ -7,11 +7,15 @@ import { AxiosError } from 'axios';
 import { Logger } from '@nestjs/common';
 import { InternalServerErrorException } from '@nestjs/common';
 import { ResumeDto } from './dto/resume.dto';
+import { PrismaService } from 'src/prisma/prisma.service';
+import { FlagDto } from './dto/flag.dto';
+import { ExceptionsHandler } from '@nestjs/core/exceptions/exceptions-handler';
+
 @Injectable()
 export class QueryService {
     private readonly logger = new Logger(QueryService.name);
     
-    constructor(private httpService:HttpService, private configService:ConfigService){}
+    constructor(private httpService:HttpService, private configService:ConfigService, private prismaService: PrismaService){}
     async forwardQuery(query:string, role:string){
       
          const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || [];
@@ -107,7 +111,23 @@ export class QueryService {
         ),
     )
     return res.data
+    }
 
+    async recordFlag(flagDto:FlagDto, flaggedByUserId:number){
+      try {
+        const flag=await this.prismaService.flaggedAnswer.create({
+          data:{
+            flaggedByUserId:flaggedByUserId,
+            domain         : flagDto.domain,
+            answer:flagDto.answer,
+            Sources: flagDto.source.map(s => ({ path: s.path, type: s.type })),
+            reason: flagDto.reason||null
+          }
+        })
 
+        return flag
+      } catch (error) {
+        throw new Error("something wrong with query flag" +error)
+      }
     }
 }
