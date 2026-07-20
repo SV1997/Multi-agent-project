@@ -26,11 +26,24 @@ async def event_generator(req:OrchestratorRequest):
         "final_answer": None,
         "allowed_namespace": req.allowed_namespace
     }
+    steps_list = ["classify_domain","check_authorization","legal_agent","hr_agent","support_agent","coding_agent","engineering_agent", "retrieve",]
+    seen_stages = set()
+    
+    async for event in supervisor.astream_events(initial_state, version="v2", config=config, subgraphs=True):
+        # print(event['event'])
+        if event["event"] == "on_chain_start":
+            node_name = event.get("name")
+            if node_name in steps_list and node_name not in seen_stages:
+                seen_stages.add(node_name)
+                yield f"data:{json.dumps({'node_name': node_name})}\n\n"
 
-    async for event in supervisor.astream_events(initial_state, version="v1", config=config):
+        if event["event"] == "on_custom_event":   # verify this exact name for your version
+            custom_data = event.get("data", {})
+            if "tool_call" in custom_data:
+                yield f"data:{json.dumps({'tool_call': custom_data['tool_call']})}\n\n"
+
         if event["event"] == "on_chat_model_stream":
             tags = event.get("tags", [])
-            print(tags)
             if "final-answer" in tags:
                 chunk = event["data"]["chunk"]
                 if chunk.content:
