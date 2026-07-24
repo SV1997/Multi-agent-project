@@ -14,9 +14,8 @@ from .agents.coding_agent.graph import coding_agent
 from langgraph.checkpoint.memory import MemorySaver
 from .hitl.interrupts import human_review_gate
 
-checkpointer = MemorySaver()
 
-def set_supervisor_agent():
+def set_supervisor_agent(checkpointer):
     class DomainClassification(BaseModel):
         domain: Literal["legal","hr","engineering","coding","support"] = Field(description="It provide routing detail for the tool base on the literal")
 
@@ -93,9 +92,6 @@ def set_supervisor_agent():
     graph.add_edge("human_review_gate", END)
     graph.add_edge("access_denied", END)
     return graph.compile(checkpointer=checkpointer)
-
-
-supervisor = set_supervisor_agent()
  
 
 
