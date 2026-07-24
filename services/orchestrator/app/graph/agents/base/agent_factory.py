@@ -6,7 +6,7 @@ from .nodes import retrieve_context, build_context_prompt
 import sys
 import os
 from langchain_core.callbacks import adispatch_custom_event
-sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../.."))
 from shared.contracts.schema import AgentAnswer, AgentAnswerLLM
 
 def route_after_reason(state:AgentState)-> str:

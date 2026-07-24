@@ -5,17 +5,20 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
 from shared.contracts.schema import OrchestratorRequest, AgentAnswer, PausedForReviewResponse, RequestResume
-from ..graph.supervisor import supervisor
+# from ..graph.supervisor import supervisor
 from langchain_core.messages import HumanMessage
 from datetime import datetime
 import json
 from uuid import uuid4
 from langgraph.types import Command
+from ..main import app_state
 router = APIRouter()
 
+SUPERVISOR_KEY = "supervisor"
 
 async def event_generator(req:OrchestratorRequest):
     thread_id = str(uuid4())
+    supervisor = app_state[SUPERVISOR_KEY]
     config = {"configurable":{"thread_id": thread_id}}
     initial_state = {
         "messages":[HumanMessage(content=req.query)],
@@ -39,6 +42,7 @@ async def event_generator(req:OrchestratorRequest):
 
         if event["event"] == "on_custom_event":   # verify this exact name for your version
             custom_data = event.get("data", {})
+            print(custom_data)
             if "tool_call" in custom_data:
                 yield f"data:{json.dumps({'tool_call': custom_data['tool_call']})}\n\n"
 
@@ -61,6 +65,7 @@ async def event_generator(req:OrchestratorRequest):
 
 async def event_generator_resume(req:RequestResume):
     config = {"configurable":{"thread_id": req.thread_id}}
+    supervisor = app_state[SUPERVISOR_KEY]
 
     async for event in supervisor.astream_events(Command(resume=req.human_response.model_dump()),version="v1", config=config):
         if event["event"] == "on_chat_model_stream":
@@ -86,6 +91,7 @@ async def event_generator_resume(req:RequestResume):
 async def orchatrator_query(req:OrchestratorRequest):
     thread_id = str(uuid4())
     config = {"configurable":{"thread_id": thread_id}}
+    supervisor = app_state[SUPERVISOR_KEY]
     result = await supervisor.ainvoke({
         "messages":[HumanMessage(content=req.query)],
         "domain": None,
@@ -121,6 +127,7 @@ async def orchatrator_query(req:OrchestratorRequest):
 async def resume_query(req: RequestResume):
     print(req)
     config = {"configurable": {"thread_id": req.thread_id}}
+    supervisor = app_state[SUPERVISOR_KEY]
     result = await supervisor.ainvoke(
         Command(resume=req.human_response.model_dump()),
         config=config
