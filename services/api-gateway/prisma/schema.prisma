@@ -33,6 +33,7 @@ model User {
   updatedAt      DateTime        @updatedAt
   ingestionLogs  IngestionLog[]
   flaggedAnswers FlaggedAnswer[]
+  pendingRevieww PendingReview[]
 }
 
 model IngestionLog {
@@ -54,4 +55,18 @@ model FlaggedAnswer {
   Sources         Json
   reason          String?
   created_At      DateTime @default(now())
+}
+
+model PendingReview {
+  id            Int       @id @default(autoincrement())
+  threadId      String    @unique
+  userId        Int
+  user          User      @relation(fields: [userId], references: [id])
+  domain        String
+  answer        String
+  sources       Json
+  confidence    Float
+  createdAt     DateTime  @default(now())
+  resolved      Boolean   @default(false)
+  resolvedAt    DateTime?
 }

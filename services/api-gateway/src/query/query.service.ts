@@ -9,13 +9,15 @@ import { InternalServerErrorException } from '@nestjs/common';
 import { ResumeDto } from './dto/resume.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { FlagDto } from './dto/flag.dto';
-import { ExceptionsHandler } from '@nestjs/core/exceptions/exceptions-handler';
-
+import { EventEmitter2 } from '@nestjs/event-emitter';
 @Injectable()
 export class QueryService {
     private readonly logger = new Logger(QueryService.name);
     
-    constructor(private httpService:HttpService, private configService:ConfigService, private prismaService: PrismaService){}
+    constructor(private httpService:HttpService, 
+      private configService:ConfigService, 
+      private prismaService: PrismaService,
+      private eventEmitter:EventEmitter2){}
     async forwardQuery(query:string, role:string){
       
          const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || [];
@@ -56,14 +58,27 @@ export class QueryService {
       }
     }).pipe(
             catchError((error:AxiosError)=>{
+              console.log(error);
+              
                 this.logger.error(error.response?.data)
                 throw new InternalServerErrorException('An error occurred while contacting the orchestrator');
             }
          )
         ),
     )
+    await this.resolveReview(resumeDto.thread_id, res.data.answer, res.data)
 
     return res.data
+    }
+
+    async resolveReview(thread_id:string, answer:string, result:any = { answer }){
+      const update = await this.prismaService.pendingReview.update({
+        where:{thread_id},
+        data:{resolved:true, resolvedAt:new Date(), answer}
+      })
+
+      this.eventEmitter.emit(`review-resolved:${thread_id}`, result)
+      console.log(update)
     }
 
     async forwardQueryStream(query:string, role:string){
@@ -86,6 +101,7 @@ export class QueryService {
          )
         ),
     )
+    
     return res.data
 
 
@@ -110,7 +126,29 @@ export class QueryService {
          )
         ),
     )
+
     return res.data
+    }
+
+    async forwardQueryStreamPrismaInitiate(thread_id:string,reviewPayload:any,userId: number){
+      try {
+        const review = await this.prismaService.pendingReview.create({
+          data:{
+            thread_id: thread_id,
+            userId: userId,
+            sources: reviewPayload.answer.sources.map(s=>JSON.stringify(s)),
+            answer: reviewPayload.answer.answer,
+            confidence: reviewPayload.answer.confidence,
+            resolved: false
+          }
+        })
+        console.log(review);
+        
+        return review
+      } catch (error) {
+        this.logger.error(error)
+        throw new Error("something wrong with pending review initiation" + error)
+      }
     }
 
     async recordFlag(flagDto:FlagDto, flaggedByUserId:number){
@@ -129,5 +167,14 @@ export class QueryService {
       } catch (error) {
         throw new Error("something wrong with query flag" +error)
       }
+    }
+
+    async getPendingReviews(){
+      const pr = this.prismaService.pendingReview.findMany({
+        where:{resolved: false},
+        orderBy:{created_At: 'desc'}
+      })
+      console.log(pr);
+      return pr
     }
 }
