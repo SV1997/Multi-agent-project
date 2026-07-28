@@ -10,7 +10,19 @@ const authRoutes = [
     config.query.QUERY_STREAM,
     config.query.QUERY_STREAM_RESUME,
     config.query.QUERY_FLAG,
+    config.session.SESSION,
 ]
+
+let isRefreshing = false;
+let failedQueue: Array<{resolve: Function, reject: Function}>=[]
+
+const processQueue = (error:any, token:string|null=null)=>{
+failedQueue.forEach(({resolve,reject})=>{
+    if(error) reject(error)
+    else resolve(token)
+})
+failedQueue=[]
+}
 
 const baseUrl = import.meta.env.VITE_BASE_URL;
 const api = axios.create({ baseURL: baseUrl })
@@ -26,7 +38,8 @@ api.interceptors.request.use(
     (requestConfig) => {
         const accessToken = localStorage.getItem("accessToken");
         try {
-            const isTokenRequired = authRoutes.includes(requestConfig.url?.split("?")[0] || "")
+            const requestUrl = requestConfig.url?.split("?")[0] || ""
+            const isTokenRequired = authRoutes.some((route) => requestUrl === route || requestUrl.startsWith(`${route}/`))
             requestConfig.timeout = API_TIMEOUT
             if (isTokenRequired && accessToken) {
                 requestConfig.headers.Authorization = `Bearer ${accessToken}`
@@ -39,7 +52,7 @@ api.interceptors.request.use(
 )
 
 api.interceptors.response.use(
-    (response) => {
+    (response) => {        
         try {
             if (config.SUCCESS_CODE.includes(response.status)) {
                 return response.data
@@ -48,12 +61,56 @@ api.interceptors.response.use(
                 return Promise.reject(new Error("Unexpected response status"));
             }
         } catch (error) {
+            console.log(error);
             throw new Error("Error in response interceptor" + error)
         }
     },
-    (error) => {
+    async(error) => {
+        const req = error.config;
+
         if (error.response) {
-            return Promise.reject(error.response.data)
+            if(error.response?.status!==401){
+                return Promise.reject(error.response.data)
+            }
+            console.log(error.response.status, req.url);
+            if(req.url.includes('/auth/refresh')){
+            localStorage.clear();
+            window.location.href="/login";
+            return Promise.reject(error)
+        }
+
+        if(isRefreshing){
+            return new Promise((resolve, reject)=>{
+                failedQueue.push({resolve,reject})
+            }).then(token=>{
+                req.headers["Authorization"] = `Bearer ${token}`
+                return api(req)
+            }
+            )
+        }
+        isRefreshing = true
+        try {
+            const response:any = await api.post("/auth/refresh",{},{
+                withCredentials:true
+            })
+            console.log(response);
+            
+            const newToken = response.accessToken
+            localStorage.setItem('accessToken', newToken)
+            processQueue(null, newToken)
+            req.headers["Authorization"] = `Bearer ${newToken}`
+            return api(req)
+        } catch (error) {
+            processQueue(error, null)
+            console.log(error);
+            
+            localStorage.clear()
+            window.location.href = "/login"
+            return Promise.reject(error)
+        }finally {
+    isRefreshing = false
+}
+            
         } else if (error.request) {
             console.error("Request error:", error.request);
             return Promise.reject(new Error("No response received from server"));

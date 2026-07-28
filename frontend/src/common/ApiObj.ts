@@ -10,6 +10,11 @@ const ApiObj = {
         QUERY_STREAM_RESUME: '/query/stream/resume',
         QUERY_FLAG: '/query/flag',
     },
+    session:{
+        SESSION_CREATE: '/session/create',
+        SESSION_LIST: '/session/list',
+        SESSION_MESSAGES: (id: string) => `/session/${id}/messages`,
+    },
     ingestion:{
         INGESTION: '/ingestion',
     },

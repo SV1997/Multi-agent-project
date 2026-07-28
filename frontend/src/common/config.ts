@@ -13,6 +13,11 @@ export default {
         QUERY_STREAM_RESUME: `${API_BASE_URL}/query/stream/resume`,
         QUERY_FLAG: `${API_BASE_URL}/query/flag`,
     },
+    session:{
+        SESSION_CREATE: `${API_BASE_URL}/session/create`,
+        SESSION_LIST: `${API_BASE_URL}/session/list`,
+        SESSION: `${API_BASE_URL}/session`,
+    },
     ingestion:{
         INGESTION: `${API_BASE_URL}/ingestion`,
     },

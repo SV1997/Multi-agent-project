@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Scale, Users, Cpu, Code2, LifeBuoy, CheckCircle2, type LucideIcon } from "lucide-react";
+import { Send, Scale, Users, Cpu, Code2, LifeBuoy, CheckCircle2, Plus, MessageSquare, type LucideIcon } from "lucide-react";
 import { useChatStream } from "../../custom_hooks/useChatStream";
+import { fetchRequestGet, fetchRequestPost } from "../../common/NetworkOps";
+import ApiObj from "../../common/ApiObj";
 const COLORS = {
   ink: "#0B0F17",
   panel: "#131A26",
@@ -27,6 +29,13 @@ type Message = {
   agent?: Agent;
   status?: "streaming" | "done";
   pendingReview?: boolean
+};
+
+type SessionSummary = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 const AGENTS: Agent[] = [
@@ -91,20 +100,83 @@ export default function Dashboard() {
   const [activeAgent, setActiveAgent] = useState<Agent | null>(null);
   const [sources, setSources] = useState(0);
   const [isBusy, setIsBusy] = useState(false);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentAssisstantIdRef = useRef<string | null>(null)
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const { state, sendQuery } = useChatStream();
 
-  // useEffect(() => {
-  //   sendQuery("what is gdpr");
-  // }, [sendQuery]);
+  const fetchSessions = useCallback(async () => {
+    try {
+      setSessionsLoading(true);
+      const res: any = await fetchRequestGet(ApiObj.session.SESSION_LIST);
+      setSessions(res ?? []);
+    } catch (err) {
+      console.error("Failed to load sessions", err);
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
 
-  // useEffect(()=>{
-  //   console.log(state.answerText);
-  // },[state.answerText])
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
 
+  const resetConversationState = () => {
+    setMessages([]);
+    setStage(null);
+    setActiveAgent(null);
+    setSources(0);
+    setIsBusy(false);
+    currentAssisstantIdRef.current = null;
+  };
+
+  const handleCreateSession = useCallback(async () => {
+    if (creatingSession) return;
+    try {
+      setCreatingSession(true);
+      const res: any = await fetchRequestPost(ApiObj.session.SESSION_CREATE);
+      const newSession: SessionSummary = {
+        id: res.sessionId,
+        title: "New session",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setSessions((prev) => [newSession, ...prev]);
+      resetConversationState();
+      setActiveSessionId(newSession.id);
+    } catch (err) {
+      console.error("Failed to create session", err);
+    } finally {
+      setCreatingSession(false);
+    }
+  }, [creatingSession]);
+
+  const handleSelectSession = useCallback(async (sessionId: string) => {
+    if (sessionId === activeSessionId) return;
+    try {
+      setLoadingMessages(true);
+      resetConversationState();
+      const res: any = await fetchRequestGet(ApiObj.session.SESSION_MESSAGES(sessionId));
+      const loaded: Message[] = (res ?? []).map((m: any) => ({
+        id: m.id,
+        role: m.role === "USER" ? "user" : "assistant",
+        content: m.content,
+        status: "done",
+      }));
+      setMessages(loaded);
+      setActiveSessionId(sessionId);
+    } catch (err) {
+      console.error("Failed to load session messages", err);
+    } finally {
+      setLoadingMessages(false);
+    }
+  }, [activeSessionId]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -143,8 +215,9 @@ export default function Dashboard() {
       setStage("done");
       setIsBusy(false)
       currentAssisstantIdRef.current = null
+      fetchSessions();
     }
-  },[state.isStreaming])
+  },[state.isStreaming, fetchSessions])
 
   useEffect(() => {
     if (state.pausedReview && currentAssisstantIdRef.current) {
@@ -156,7 +229,7 @@ export default function Dashboard() {
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || isBusy) return;
+    if (!text || isBusy || !activeSessionId) return;
 
     const userId = crypto.randomUUID();
     const assistantId = crypto.randomUUID();
@@ -171,11 +244,8 @@ export default function Dashboard() {
     setActiveAgent(null);
     setSources(0);
     setStage(null);
-    sendQuery(text)
-    // --- Wiring note: replace this simulated sequence with the real
-    // fetch()-based SSE reader (see useChatStream) hitting QUERY_STREAM,
-    // and drive `stage` off actual astream_events from the orchestrator. ---
-  }, [input, isBusy, sendQuery]);
+    sendQuery(text, activeSessionId)
+  }, [input, isBusy, sendQuery, activeSessionId]);
 
   const stageIndex = STAGES.findIndex((s) => s.id === stage);
 
@@ -229,24 +299,80 @@ export default function Dashboard() {
         </div>
 
         <button
-          disabled
+          onClick={handleCreateSession}
+          disabled={creatingSession}
           style={{
             background: COLORS.raised,
             border: `1px solid ${COLORS.hairline}`,
-            color: COLORS.muted,
+            color: COLORS.paper,
             fontFamily: "'Inter', sans-serif",
             fontSize: 13,
             fontWeight: 500,
             padding: "9px 12px",
             borderRadius: 8,
-            marginBottom: 24,
-            cursor: "not-allowed",
+            marginBottom: 20,
             textAlign: "left",
+            cursor: creatingSession ? "not-allowed" : "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            opacity: creatingSession ? 0.6 : 1,
           }}
-          title="Multiple sessions coming soon"
         >
-          + New session
+          <Plus size={14} color={COLORS.signal} />
+          {creatingSession ? "Creating…" : "New session"}
         </button>
+
+        <div
+          style={{
+            fontFamily: "'IBM Plex Mono', monospace",
+            fontSize: 10,
+            color: COLORS.faint,
+            letterSpacing: 1,
+            marginBottom: 10,
+            paddingLeft: 4,
+          }}
+        >
+          SESSIONS
+        </div>
+
+        <div className="sb-scroll" style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, overflowY: "auto", minHeight: 0, marginBottom: 16 }}>
+          {sessionsLoading && (
+            <div style={{ fontSize: 12, color: COLORS.muted, padding: "8px 8px" }}>Loading…</div>
+          )}
+          {!sessionsLoading && sessions.length === 0 && (
+            <div style={{ fontSize: 12, color: COLORS.muted, padding: "8px 8px", lineHeight: 1.4 }}>
+              No sessions yet. Start a new one to begin chatting.
+            </div>
+          )}
+          {sessions.map((s) => {
+            const isActive = s.id === activeSessionId;
+            return (
+              <button
+                key={s.id}
+                onClick={() => handleSelectSession(s.id)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "8px 8px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: isActive ? COLORS.raised : "transparent",
+                  color: isActive ? COLORS.paper : COLORS.muted,
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 12.5,
+                  textAlign: "left",
+                  cursor: "pointer",
+                  width: "100%",
+                }}
+              >
+                <MessageSquare size={13} color={isActive ? COLORS.signal : COLORS.faint} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>
+              </button>
+            );
+          })}
+        </div>
 
         <div
           style={{
@@ -313,7 +439,6 @@ export default function Dashboard() {
             ))}
           </div>
         )}
-        <div style={{ flex: 1 }} />
 
         <div
           style={{
@@ -322,14 +447,75 @@ export default function Dashboard() {
             color: COLORS.faint,
             letterSpacing: 0.4,
             paddingLeft: 4,
+            marginTop: 16,
           }}
         >
-          v0.1 · single session
+          v0.1 · {sessions.length} session{sessions.length === 1 ? "" : "s"}
         </div>
       </div>
 
       {/* CENTER — TRANSCRIPT */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        {!activeSessionId ? (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              textAlign: "center",
+              padding: 24,
+            }}
+          >
+            <div
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: 12,
+                background: `${COLORS.signal}17`,
+                border: `1px solid ${COLORS.signal}40`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 18,
+              }}
+            >
+              <Plus size={22} color={COLORS.signal} />
+            </div>
+            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 20, color: COLORS.paper, marginBottom: 8 }}>
+              Start a new session
+            </div>
+            <div style={{ fontSize: 13.5, color: COLORS.muted, maxWidth: 340, lineHeight: 1.6, marginBottom: 24 }}>
+              {sessions.length > 0
+                ? "Pick a previous session from the sidebar, or start a fresh one to ask the supervisor a new question."
+                : "Create a session to start chatting with Legal, HR, Engineering, Coding, or Support."}
+            </div>
+            <button
+              onClick={handleCreateSession}
+              disabled={creatingSession}
+              style={{
+                background: COLORS.signal,
+                border: "none",
+                color: COLORS.ink,
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 14,
+                fontWeight: 600,
+                padding: "10px 20px",
+                borderRadius: 9,
+                cursor: creatingSession ? "not-allowed" : "pointer",
+                opacity: creatingSession ? 0.7 : 1,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <Plus size={16} />
+              {creatingSession ? "Creating…" : "New session"}
+            </button>
+          </div>
+        ) : (
+        <>
         <div
           style={{
             padding: "16px 28px",
@@ -368,7 +554,12 @@ export default function Dashboard() {
         </div>
 
         <div ref={scrollRef} className="sb-scroll" style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
-          {messages.length === 0 && (
+          {loadingMessages && (
+            <div style={{ textAlign: "center", color: COLORS.muted, fontSize: 13, paddingTop: 40 }}>
+              Loading session…
+            </div>
+          )}
+          {!loadingMessages && messages.length === 0 && (
             <div
               style={{
                 height: "100%",
@@ -466,6 +657,7 @@ export default function Dashboard() {
                   handleSend();
                 }
               }}
+              disabled={loadingMessages}
               placeholder="Ask Legal, HR, Engineering, Coding, or Support…"
               rows={1}
               style={{
@@ -482,9 +674,9 @@ export default function Dashboard() {
             />
             <button
               onClick={handleSend}
-              disabled={isBusy || !input.trim()}
+              disabled={isBusy || !input.trim() || loadingMessages}
               style={{
-                background: isBusy || !input.trim() ? COLORS.hairline : COLORS.signal,
+                background: isBusy || !input.trim() || loadingMessages ? COLORS.hairline : COLORS.signal,
                 border: "none",
                 borderRadius: 9,
                 width: 36,
@@ -492,7 +684,7 @@ export default function Dashboard() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                cursor: isBusy || !input.trim() ? "not-allowed" : "pointer",
+                cursor: isBusy || !input.trim() || loadingMessages ? "not-allowed" : "pointer",
                 flexShrink: 0,
               }}
             >
@@ -500,6 +692,8 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
+        </>
+        )}
       </div>
 
       {/* RIGHT RAIL — ROUTING (SIGNATURE ELEMENT) */}
