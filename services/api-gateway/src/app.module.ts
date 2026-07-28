@@ -7,12 +7,13 @@ import { ConfigModule } from '@nestjs/config';
 import { QueryModule } from './query/query.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { SessionModule } from './session/session.module';
 @Module({
   imports:[EventEmitterModule.forRoot(),PrismaModule, AuthModule, ConfigModule.forRoot(
     {
       isGlobal: true
     }
-  ), QueryModule, IngestionModule],
+  ), QueryModule, IngestionModule, SessionModule],
   controllers: [AppController],
   providers: [AppService],
 })
