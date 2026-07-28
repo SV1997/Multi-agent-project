@@ -18,7 +18,7 @@ export function useChatStream() {
     pausedReview: null,
   });
 
-  const sendQuery = useCallback(async (query: string) => {
+  const sendQuery = useCallback(async (query: string, sessionId: string) => {
     setState({ currentStage: null, toolCalls: [], answerText: '', isStreaming: true, pausedReview: null });
 
     const response = await fetch(import.meta.env.VITE_BASE_URL + ApiObj.query.QUERY_STREAM, {
@@ -27,7 +27,7 @@ export function useChatStream() {
         'content-type': 'application/json',
         Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
       },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, sessionId }),
     });
     // //console.log(response);
     const reader = response.body?.getReader();
