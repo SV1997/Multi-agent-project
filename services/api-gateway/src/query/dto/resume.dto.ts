@@ -14,7 +14,7 @@ class humanRsponse{
 
 export class ResumeDto{
     @IsString()
-    thread_id!: string;
+    threadId!: string;
 
     @ValidateNested()
     @Type(()=>humanRsponse)
