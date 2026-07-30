@@ -18,7 +18,7 @@ export function useChatStream() {
     pausedReview: null,
   });
 
-  const sendQuery = useCallback(async (query: string, sessionId: string) => {
+  const sendQuery = useCallback(async (query: string, sessionId: string, turnId: string) => {
     setState({ currentStage: null, toolCalls: [], answerText: '', isStreaming: true, pausedReview: null });
 
     const response = await fetch(import.meta.env.VITE_BASE_URL + ApiObj.query.QUERY_STREAM, {
@@ -27,7 +27,7 @@ export function useChatStream() {
         'content-type': 'application/json',
         Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
       },
-      body: JSON.stringify({ query, sessionId }),
+      body: JSON.stringify({ query, sessionId, turnId }),
     });
     // //console.log(response);
     const reader = response.body?.getReader();
@@ -36,53 +36,76 @@ export function useChatStream() {
     if (!reader) return;
 
     let buffer = '';
+    let sawDone = false;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    const processLine = (line: string) => {
+      if (!line.startsWith('data:')) return;
+      const dataStr = line.slice(5).trim();
+      if (!dataStr) return;
 
-      buffer += decoder.decode(value, { stream: true });
+      if (dataStr === '[DONE]') {
+        sawDone = true;
+        setState((prev) => ({ ...prev, isStreaming: false }));
+        return;
+      }
 
-      const lines = buffer.split('\n\n');
-      buffer = lines.pop() || '';
+      let parsed: any;
+      try {
+        parsed = JSON.parse(dataStr);
+      } catch {
+        return;
+      }
+      console.log(parsed);
+      
+      if (parsed.node_name) {
+        setState((prev) => ({ ...prev, currentStage: parsed.node_name }));
+        return;
+      }
 
-        //console.log();
+      if (parsed.tool_call) {
+        setState((prev) => ({ ...prev, toolCalls: [...prev.toolCalls, parsed.tool_call] }));
+        return;
+      }
+
+      if (parsed.token) {
+        setState((prev) => ({ ...prev, answerText: prev.answerText + parsed.token }));
+        return;
+      }
         
 
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue;
-        const dataStr = line.slice(5).trim();
-        
-        if (dataStr === '[DONE]') {
-          setState((prev) => ({ ...prev, isStreaming: false }));
-          continue;
-        }
+      if (parsed.status === 'paused_for_review') {
+        console.log(parsed.status, parsed.status === 'paused_for_review');
+        setState((prev) => ({ ...prev, pausedReview: parsed }));
+        return;
+      }
+    };
 
-        const parsed = JSON.parse(dataStr);
-        // console.log(parsed.tool_call, parsed)
-        if (parsed.node_name) {
-            // console.log(parsed.node_name);
-            
-          setState((prev) => ({ ...prev, currentStage: parsed.node_name }));
-          continue;
-        }
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-        if (parsed.tool_call) {
-            // console.log(parsed.tool_call)
-          setState((prev) => ({ ...prev, toolCalls: [...prev.toolCalls, parsed.tool_call] }));
-          continue;
-        }
+        buffer += decoder.decode(value, { stream: true });
 
-        if (parsed.token) {
-            // console.log(parsed.token)
-          setState((prev) => ({ ...prev, answerText: prev.answerText + parsed.token }));
-          continue;
-        }
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
 
-        if (parsed.status === 'paused_for_review') {
-          setState((prev) => ({ ...prev, pausedReview: parsed }));
-          continue;
+        for (const line of lines) {
+          processLine(line);
         }
+      }
+
+      // Flush whatever is left in the buffer (e.g. a final event whose
+      // trailing "\n\n" got split across reads, or arrived without one).
+      buffer += decoder.decode();
+      for (const line of buffer.split('\n\n')) {
+        processLine(line);
+      }
+    } finally {
+      // Safety net: if the stream ended (or errored) without an explicit
+      // [DONE] marker, don't leave the UI stuck mid-flight.
+      if (!sawDone) {
+        setState((prev) => ({ ...prev, isStreaming: false }));
       }
     }
   }, []);

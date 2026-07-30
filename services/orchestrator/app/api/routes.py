@@ -17,7 +17,7 @@ router = APIRouter()
 SUPERVISOR_KEY = "supervisor"
 
 async def event_generator(req:OrchestratorRequest):
-    thread_id = str(uuid4())
+    thread_id = req.thread_id
     supervisor = app_state[SUPERVISOR_KEY]
     config = {"configurable":{"thread_id": thread_id}}
     initial_state = {
@@ -67,7 +67,7 @@ async def event_generator_resume(req:RequestResume):
     config = {"configurable":{"thread_id": req.thread_id}}
     supervisor = app_state[SUPERVISOR_KEY]
 
-    async for event in supervisor.astream_events(Command(resume=req.human_response.model_dump()),version="v1", config=config):
+    async for event in supervisor.astream_events(Command(resume=req.human_response.model_dump()),version="v2", config=config):
         if event["event"] == "on_chat_model_stream":
             chunk = event["data"]["chunk"]
             if chunk.content:
