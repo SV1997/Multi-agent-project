@@ -5,7 +5,7 @@ import { ROLE_NAMESPACE_ACCESS } from 'src/auth/rbac';
 import { firstValueFrom, catchError } from 'rxjs';
 import { AxiosError } from 'axios';
 import { Logger } from '@nestjs/common';
-import { InternalServerErrorException } from '@nestjs/common';
+import { InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { ResumeDto } from './dto/resume.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { FlagDto } from './dto/flag.dto';
@@ -44,8 +44,8 @@ export class QueryService {
     )
     console.log(res.data["requires_human_review"]);
     
-    if (res.data["thread_id"]){
-      return {message:" This response required review from admin",status:res.data["status"] ,thread_id:res.data["thread_id"]}
+    if (res.data["threadId"]){
+      return {message:" This response required review from admin",status:res.data["status"] ,threadId:res.data["threadId"]}
     }
     return res.data
     }
@@ -54,7 +54,7 @@ export class QueryService {
       const orchestratorUrl = this.configService.get<string>('ORCHESTRATOR_URL')||"";
       const res = await firstValueFrom(this.httpService.post(orchestratorUrl+"/resume",{
         human_response:resumeDto.human_response,
-        thread_id:resumeDto.thread_id
+        threadId:resumeDto.threadId
       },
     {
       headers:{
@@ -62,22 +62,44 @@ export class QueryService {
       }
     }).pipe(
             catchError((error:AxiosError)=>{
+              console.log(error);
+              
                 this.logger.error(error.response?.data)
                 throw new InternalServerErrorException('An error occurred while contacting the orchestrator');
             }
          )
         ),
     )
+    await this.resolveReview(resumeDto.threadId, res.data.answer, res.data)
 
     return res.data
     }
 
-    async forwardQueryStream(query:string, role:string){
+    async resolveReview(threadId:string, answer:string, result:any = { answer }){
+      const update = await this.prismaService.pendingReview.update({
+        where:{threadId},
+        data:{resolved:true, resolvedAt:new Date(), answer}
+      })
+
+      this.eventEmitter.emit(`review-resolved:${threadId}`, result)
+      console.log(update)
+    }
+
+    async forwardQueryStream(query:string, role:string, sessionId:string){
       const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || [];
+
+      const session = await this.prismaService.session.findUnique({
+        where:{id:sessionId}
+      })
+      const threadId= session?.thread_id
+      if(!threadId){
+        throw new NotFoundException(`Session ${sessionId} not found`)
+      }
          const orchestratorUrl = this.configService.get<string>('ORCHESTRATOR_URL')||"";
          const res = await firstValueFrom(this.httpService.post(`${orchestratorUrl}/stream`,{
       query: query,
       allowed_namespace: allowedNamespaces,
+      thread_id:threadId
     },
     {
       headers: {
@@ -92,6 +114,7 @@ export class QueryService {
          )
         ),
     )
+    
     return res.data
 
 
@@ -101,7 +124,7 @@ export class QueryService {
          const orchestratorUrl = this.configService.get<string>('ORCHESTRATOR_URL')||"";
          const res = await firstValueFrom(this.httpService.post(`${orchestratorUrl}/stream/resume`,{
       human_response:resumeDto.human_response,
-        thread_id:resumeDto.thread_id
+        threadId:resumeDto.threadId
     },
     {
       headers: {

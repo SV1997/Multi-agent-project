@@ -23,6 +23,11 @@ enum Role {
   superadmin
 }
 
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
 model User {
   id             Int             @id @default(autoincrement())
   name           String
@@ -61,13 +66,13 @@ id        String   @id @default(uuid())
 }
 
 model RefreshToken {
-  id        Int      @id @default(autoincrement())
-  token     String   @unique
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
-  expiresAt DateTime
-  revoked   Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id         Int       @id @default(autoincrement())
+  tokenHash  String    @unique
+  user_id    Int
+  user       User      @relation(fields: [user_id], references: [id])
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
 }
 
 model IngestionLog {
@@ -98,7 +103,6 @@ model PendingReview {
   user          User      @relation(fields: [userId], references: [id])
   domain        String
   answer        String
-  turnId        String?
   sessionId     String
   session       Session @relation(fields: [sessionId], references: [id])
   sources       Json

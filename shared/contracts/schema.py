@@ -6,7 +6,7 @@ equivalent Zod schema (shared/schemas/contracts.ts) to keep wire format in sync.
 """
 
 from pydantic import BaseModel, Field
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 from datetime import datetime
 
 
@@ -88,6 +88,7 @@ class EvalResponse(BaseModel):
 class OrchestratorRequest(BaseModel):
     query: str
     allowed_namespace: list[str]
+    thread_id: Optional[str] = None
 
 class RevisedAnswer(BaseModel):
     revised_answer: str

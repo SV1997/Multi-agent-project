@@ -108,7 +108,40 @@ export class QueryController {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive')
 
-        stream.pipe(res)
+        let buffer = ""
+        let answer = ""
+        let pausedAgain = false
+        stream.on('data', (chunk: Buffer) => {
+            buffer += chunk.toString();
+            const frames = buffer.split("\n\n")
+            buffer = frames.pop() || ''
+            for (const frame of frames) {
+                const line = frame.split('\n').find(l => l.startsWith("data:"))
+                if (!line) continue;
+                const dataStr = line.slice(5).trim();
+                if (dataStr === '[DONE]') continue;
+
+                try {
+                    const parsed = JSON.parse(dataStr);
+                    if (parsed.status === 'paused_for_review') {
+                        pausedAgain = true
+                    } else if (typeof parsed.token === 'string') {
+                        answer += parsed.token
+                    }
+                } catch {
+                    // partial/non-JSON frame, ignore
+                }
+            }
+
+            res.write(chunk);
+        });
+
+        stream.on('end', async () => {
+            if (!pausedAgain) {
+                await this.queryService.resolveReview(resumeDto.threadId, answer)
+            }
+            res.end()
+        })
     }
     @UseGuards(AuthguardGuard)
     @Post("flag")

@@ -89,7 +89,7 @@ async def event_generator_resume(req:RequestResume):
     dependencies=[Depends(verify_internal_secret)]
 )
 async def orchatrator_query(req:OrchestratorRequest):
-    thread_id = str(uuid4())
+    thread_id = req.thread_id if req.thread_id else str(uuid4())
     config = {"configurable":{"thread_id": thread_id}}
     supervisor = app_state[SUPERVISOR_KEY]
     result = await supervisor.ainvoke({
