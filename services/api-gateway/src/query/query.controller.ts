@@ -1,4 +1,4 @@
-import { Body, Controller, UseGuards, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Param, UseGuards, Post, Req, Res } from '@nestjs/common';
 import {QueryService} from "./query.service";
 import { AuthguardGuard } from 'src/guards/auth/authguard/authguard.guard';
 import { QueryDTO } from './dto/query.dto';
@@ -7,12 +7,19 @@ import { ResumeDto } from './dto/resume.dto';
 import { FlagDto } from './dto/flag.dto';
 import { RoleguardGuard } from 'src/guards/role/roleguard/roleguard.guard';
 import { Roles } from 'src/guards/role/roleguard/role.decorator';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { SessionService } from 'src/session/session.service';
+import { MessageRole } from 'generated/prisma/enums';
 interface AuthenticatedRequest extends Request{
     user:{sub:number; email:string; role: string};
 }
 @Controller('query')
 export class QueryController {
-    constructor(private readonly queryService:QueryService){}
+    constructor(
+      private readonly queryService:QueryService,
+      private readonly sessionService:SessionService,
+      private readonly eventEmitter:EventEmitter2
+    ){}
 
     @UseGuards(AuthguardGuard)
     @Post()
@@ -29,15 +36,70 @@ export class QueryController {
     @UseGuards(AuthguardGuard)
     @Post('stream')
     async queryStream(@Body() queryDto:QueryDTO, @Req() req:AuthenticatedRequest, @Res() res:Response){
-        const stream = await this.queryService.forwardQueryStream(queryDto.query, req.user.role)
-
+        this.queryService.isSessionPending(queryDto.sessionId)
+        const turnId=queryDto.turnId
+        await this.sessionService.recordUserMessage(MessageRole.USER,queryDto.sessionId,queryDto.query,turnId)
+        const stream = await this.queryService.forwardQueryStream(queryDto.query,req.user.role, queryDto.sessionId)
+        
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive')
+        let buffer = ""
+        let answerBuffer = ""
+        // Node emits 'data'/'end' without waiting on async listeners, so we
+        // chain each chunk's processing and make 'end' await the chain -
+        // otherwise res.end() can fire while the paused_for_review frame's
+        // DB write (and its res.write) is still in flight, closing the
+        // response before that frame ever reaches the client.
+        let processing: Promise<void> = Promise.resolve();
 
-        stream.pipe(res)
+        stream.on('data', (chunk: Buffer) => {
+            processing = processing.then(async () => {
+                buffer += chunk.toString();
+                const frames = buffer.split("\n\n")
+                buffer = frames.pop()||''
+                for (const frame of frames){
+                    const line = frame.split('\n').find(l=>l.startsWith("data:"))
+                        if (!line) continue;
+                        const dataStr = line.slice(5).trim();
+                        if (dataStr === '[DONE]'){
+                            await this.sessionService.recordUserMessage(MessageRole.ASSISTANT,queryDto.sessionId,answerBuffer,turnId)
+                            res.write(`data:${dataStr}\n\n`);
+
+                            continue;
+                        }
+
+                        try {
+                            const parsed = JSON.parse(dataStr);
+                            answerBuffer+=parsed.token!==undefined?parsed.token:""
+
+                            console.log(parsed );
+
+                            if (parsed.status === 'paused_for_review') {
+                                await this.queryService.forwardQueryStreamPrismaInitiate(parsed.thread_id,parsed.review_payload,req.user.sub, req.user.role, queryDto.sessionId, turnId)
+                                res.write(`data:${JSON.stringify({...parsed, turnId, sessionId: queryDto.sessionId})}\n\n`);
+
+                            }
+                            else{
+                                res.write(`data:${dataStr}\n\n`)
+                            }
+                        } 
+                        catch {
+                            // partial/non-JSON frame, ignore
+                        }
+                }
+            });
+        });
+
+
+    stream.on('end', async () => {
+        await processing;
+        res.end()
+    })
     }
     @UseGuards(AuthguardGuard)
+    @Roles("admin")
+    @UseGuards(RoleguardGuard)
     @Post('stream/resume')
     async queryStreamResume(@Body() resumeDto:ResumeDto, @Res() res:Response){
         const stream = await this.queryService.forwardQueryStreamResume(resumeDto)
@@ -52,5 +114,36 @@ export class QueryController {
     @Post("flag")
     async flagQuery(@Body() flagDto:FlagDto, @Req() req:AuthenticatedRequest){
         return this.queryService.recordFlag(flagDto, req.user.sub)
+    }
+
+    @UseGuards(AuthguardGuard,RoleguardGuard)
+    @Roles('admin')
+    @Get('pending-reviews')
+    async getPendingReviews(){
+       return this.queryService.getPendingReviews()
+    }
+
+    @UseGuards(AuthguardGuard)
+    @Get('notifications/:thread_id')
+    async waitForResolution(@Param('thread_id') thread_id:string, @Res() res:Response){
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive')
+
+        const listener = (result:any)=>{
+            res.write(`data:${JSON.stringify({status:'resolved', result})}\n\n`);
+            res.end();
+        }
+
+        this.eventEmitter.once(`review-resolved:${thread_id}`,listener)
+
+        res.on('close',()=>{
+            this.eventEmitter.removeListener(`review-resolved:${thread_id}`,listener)
+        })
+    }
+    @UseGuards(AuthguardGuard)
+    @Post('my-pending-reviews')
+    async getMyPendingReviews(@Body('sessionId') sessionId:string,@Req() req:AuthenticatedRequest){
+        return this.queryService.getMyPendingReview(req.user.sub, sessionId)
     }
 }

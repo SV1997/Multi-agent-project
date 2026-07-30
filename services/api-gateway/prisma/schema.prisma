@@ -33,6 +33,41 @@ model User {
   updatedAt      DateTime        @updatedAt
   ingestionLogs  IngestionLog[]
   flaggedAnswers FlaggedAnswer[]
+  pendingRevieww PendingReview[]
+  session Session[]
+  refreshToken RefreshToken[]
+}
+
+model Session {
+id  String @id @default(uuid())
+thread_id String @unique
+userId Int
+user User @relation(fields:[userId], references: [id])
+messages Message[]
+pendingReview PendingReview[]
+created_At DateTime @default(now())
+updatedAt DateTime @updatedAt
+}
+
+
+model Message{
+id        String   @id @default(uuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id])
+  role      MessageRole
+  content   String
+  turnId    String
+  createdAt DateTime @default(now())
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
 }
 
 model IngestionLog {
@@ -54,4 +89,21 @@ model FlaggedAnswer {
   Sources         Json
   reason          String?
   created_At      DateTime @default(now())
+}
+
+model PendingReview {
+  id            Int       @id @default(autoincrement())
+  threadId      String    @unique
+  userId        Int
+  user          User      @relation(fields: [userId], references: [id])
+  domain        String
+  answer        String
+  turnId        String?
+  sessionId     String
+  session       Session @relation(fields: [sessionId], references: [id])
+  sources       Json
+  confidence    Float
+  createdAt     DateTime  @default(now())
+  resolved      Boolean   @default(false)
+  resolvedAt    DateTime?
 }

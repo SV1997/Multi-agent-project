@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { Send, Scale, Users, Cpu, Code2, LifeBuoy, CheckCircle2, Plus, MessageSquare, type LucideIcon } from "lucide-react";
 import { useChatStream } from "../../custom_hooks/useChatStream";
 import { fetchRequestGet, fetchRequestPost } from "../../common/NetworkOps";
+import ReactMarkdown from 'react-markdown'
 import ApiObj from "../../common/ApiObj";
+import remarkGfm from 'remark-gfm'
 const COLORS = {
   ink: "#0B0F17",
   panel: "#131A26",
@@ -29,6 +32,13 @@ type Message = {
   agent?: Agent;
   status?: "streaming" | "done";
   pendingReview?: boolean
+  turnId?: string;
+};
+
+type PendingReview = {
+  turnId: string;
+  resolved: boolean;
+  [key: string]: any;
 };
 
 type SessionSummary = {
@@ -94,6 +104,8 @@ function fontStack() {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
+  const { sessionId: activeSessionId } = useParams<{ sessionId?: string }>();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [stage, setStage] = useState<string | null>(null);
@@ -102,9 +114,10 @@ export default function Dashboard() {
   const [isBusy, setIsBusy] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [creatingSession, setCreatingSession] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [pendingReviews, setPendingReviews] = useState<PendingReview[]>([])
+  const loadedSessionIdRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentAssisstantIdRef = useRef<string | null>(null)
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -127,14 +140,21 @@ export default function Dashboard() {
     fetchSessions();
   }, [fetchSessions]);
 
+
   const resetConversationState = () => {
     setMessages([]);
     setStage(null);
     setActiveAgent(null);
     setSources(0);
     setIsBusy(false);
-    currentAssisstantIdRef.current = null;
   };
+
+  const fetchPendingReview = useCallback(async (sessionId: string) => {
+    const reviews: any = await fetchRequestPost(ApiObj.query.QUERY_MY_PENDING_REVIEWS, { sessionId });
+    const list: PendingReview[] = reviews ?? [];
+    setPendingReviews(list);
+    return list;
+  }, []);
 
   const handleCreateSession = useCallback(async () => {
     if (creatingSession) return;
@@ -149,34 +169,62 @@ export default function Dashboard() {
       };
       setSessions((prev) => [newSession, ...prev]);
       resetConversationState();
-      setActiveSessionId(newSession.id);
+      loadedSessionIdRef.current = newSession.id;
+      navigate(`/dashboard/${newSession.id}`);
     } catch (err) {
       console.error("Failed to create session", err);
     } finally {
       setCreatingSession(false);
     }
-  }, [creatingSession]);
+  }, [creatingSession, navigate]);
 
-  const handleSelectSession = useCallback(async (sessionId: string) => {
+  const handleSelectSession = useCallback((sessionId: string) => {
     if (sessionId === activeSessionId) return;
-    try {
-      setLoadingMessages(true);
+    navigate(`/dashboard/${sessionId}`);
+  }, [activeSessionId, navigate]);
+
+  useEffect(() => {
+    if (!activeSessionId) {
+      loadedSessionIdRef.current = null;
       resetConversationState();
-      const res: any = await fetchRequestGet(ApiObj.session.SESSION_MESSAGES(sessionId));
-      const loaded: Message[] = (res ?? []).map((m: any) => ({
-        id: m.id,
-        role: m.role === "USER" ? "user" : "assistant",
-        content: m.content,
-        status: "done",
-      }));
-      setMessages(loaded);
-      setActiveSessionId(sessionId);
-    } catch (err) {
-      console.error("Failed to load session messages", err);
-    } finally {
-      setLoadingMessages(false);
+      return;
     }
-  }, [activeSessionId]);
+    if (loadedSessionIdRef.current === activeSessionId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingMessages(true);
+        resetConversationState();
+        const [res, reviews] = await Promise.all([
+          fetchRequestGet(ApiObj.session.SESSION_MESSAGES(activeSessionId)) as Promise<any>,
+          fetchPendingReview(activeSessionId),
+        ]);
+        if (cancelled) return;
+        const pendingTurnIds = new Set(
+          reviews.filter((r) => !r.resolved).map((r) => r.turnId)
+        );
+        const loaded: Message[] = (res ?? []).map((m: any) => ({
+          id: m.id,
+          role: m.role === "USER" ? "user" : "assistant",
+          content: m.content,
+          status: "done",
+          turnId: m.turnId,
+          pendingReview: pendingTurnIds.has(m.turnId),
+        }));
+        setMessages(loaded);
+        loadedSessionIdRef.current = activeSessionId;
+      } catch (err) {
+        console.error("Failed to load session messages", err);
+      } finally {
+        if (!cancelled) setLoadingMessages(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, fetchPendingReview]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -206,7 +254,7 @@ export default function Dashboard() {
   }, [state.answerText])
 
   useEffect(() => {
-    if (!state.isStreaming && currentAssisstantIdRef.current) {
+    if (!state.isStreaming && !state.pausedReview && currentAssisstantIdRef.current) {
       setMessages((prev) => (
         prev.map((m) =>
           m.id === currentAssisstantIdRef.current ? { ...m, status: "done" } : m
@@ -217,13 +265,35 @@ export default function Dashboard() {
       currentAssisstantIdRef.current = null
       fetchSessions();
     }
-  },[state.isStreaming, fetchSessions])
+  },[state.isStreaming, state.pausedReview, fetchSessions])
 
   useEffect(() => {
     if (state.pausedReview && currentAssisstantIdRef.current) {
+       const assistantId = currentAssisstantIdRef.current
+    const threadId = state.pausedReview.thread_id
       setMessages((prev) => {
-        return prev.map((m) => m.id === currentAssisstantIdRef.current ? { ...m, pendingReview: true } : m)
+        return prev.map((m) => m.id === assistantId ? { ...m, pendingReview: true } : m)
       })
+      setStage("done");
+      setIsBusy(false);
+      currentAssisstantIdRef.current = null;
+      fetchSessions();
+
+      const es = new EventSource(`${ApiObj.baseUrl}/${ApiObj.query.QUERY_NOTIFICATIONS(threadId)}`,{withCredentials:true})
+      es.onmessage = (event)=>{
+        const parsed = JSON.parse(event.data)
+        if(parsed.status==='resolved'){
+          setMessages(prev =>prev.map((m)=>m.id===assistantId?{...m, content:parsed.result.answer, pendingReview:false, status:'done'}:m))
+          es.close()
+        }
+      }
+      es.onerror=()=>{
+        es.close()
+      }
+      return()=>{
+        es.close()
+      }
+
     }
   }, [state.pausedReview])
 
@@ -232,19 +302,19 @@ export default function Dashboard() {
     if (!text || isBusy || !activeSessionId) return;
 
     const userId = crypto.randomUUID();
-    const assistantId = crypto.randomUUID();
-    currentAssisstantIdRef.current = assistantId
+    const turnId = crypto.randomUUID();
+    currentAssisstantIdRef.current = turnId
     setMessages((prev) => [
       ...prev,
       { id: userId, role: "user", content: text },
-      { id: assistantId, role: "assistant", content: "", status: "streaming" },
+      { id: turnId, role: "assistant", content: "", status: "streaming" },
     ]);
     setInput("");
     setIsBusy(true);
     setActiveAgent(null);
     setSources(0);
     setStage(null);
-    sendQuery(text, activeSessionId)
+    sendQuery(text, activeSessionId, turnId)
   }, [input, isBusy, sendQuery, activeSessionId]);
 
   const stageIndex = STAGES.findIndex((s) => s.id === stage);
@@ -616,7 +686,7 @@ export default function Dashboard() {
                         lineHeight: 1.6,
                       }}
                     >
-                      {m.content}
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                       {m.status === "streaming" && (
                         <span style={{ display: "inline-block", width: 7, height: 14, background: COLORS.signal, marginLeft: 2, verticalAlign: "middle", animation: "blink 1s step-start infinite" }} />
                       )}
