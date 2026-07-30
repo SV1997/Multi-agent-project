@@ -14,18 +14,19 @@ from .agents.coding_agent.graph import coding_agent
 from langgraph.checkpoint.memory import MemorySaver
 from .hitl.interrupts import human_review_gate
 
-checkpointer = MemorySaver()
 
-def set_supervisor_agent():
+def set_supervisor_agent(checkpointer):
     class DomainClassification(BaseModel):
         domain: Literal["legal","hr","engineering","coding","support"] = Field(description="It provide routing detail for the tool base on the literal")
 
-    classifier_llm = init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0, streaming=True).with_structured_output(DomainClassification, method="json_schema", strict=True).with_config(tags=["classification-only"])
+    classifier_llm = init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0, streaming=False, reasoning_effort="low").with_structured_output(DomainClassification, method="json_schema", strict=True).with_config(tags=["classification-only"])
+
+    CLASSIFIER_HISTORY_WINDOW = 6
 
     async def classify_domain(state: AgentState)-> dict:
         prompt = SUPERVISOR_ROUTE_PROMPT
 
-        messages = [SystemMessage(content=prompt)] + state["messages"]
+        messages = [SystemMessage(content=prompt)] + state["messages"][-CLASSIFIER_HISTORY_WINDOW:]
 
         decision = await classifier_llm.ainvoke(messages)
         print(decision.domain)
@@ -93,9 +94,6 @@ def set_supervisor_agent():
     graph.add_edge("human_review_gate", END)
     graph.add_edge("access_denied", END)
     return graph.compile(checkpointer=checkpointer)
-
-
-supervisor = set_supervisor_agent()
  
 
 

@@ -1,7 +1,7 @@
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../.."))
-from ....core.config import INTERNAL_SHARED_SECRET
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../.."))
+from ....core.config import INTERNAL_SHARED_SECRET, RETRIVAL_SERVICE_URL
 import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
 from ...state import AgentState
@@ -12,7 +12,7 @@ async def retrieve_context(state:AgentState)-> dict:
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
-            "http://localhost:8001/api/v1/query",
+            f"{RETRIVAL_SERVICE_URL}/api/v1/query",
             json={
                 "query": query,
                 "namespace": namespace,
