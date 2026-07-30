@@ -5,7 +5,7 @@ import { ROLE_NAMESPACE_ACCESS } from 'src/auth/rbac';
 import { firstValueFrom, catchError } from 'rxjs';
 import { AxiosError } from 'axios';
 import { Logger } from '@nestjs/common';
-import { InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { InternalServerErrorException } from '@nestjs/common';
 import { ResumeDto } from './dto/resume.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { FlagDto } from './dto/flag.dto';
