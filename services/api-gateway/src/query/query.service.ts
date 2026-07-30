@@ -76,13 +76,14 @@ export class QueryService {
     }
 
     async resolveReview(threadId:string, answer:string, result:any = { answer }){
-      const update = await this.prismaService.pendingReview.update({
+      const updatePending = await this.prismaService.pendingReview.update({
         where:{threadId},
         data:{resolved:true, resolvedAt:new Date(), answer}
       })
 
       this.eventEmitter.emit(`review-resolved:${threadId}`, result)
-      console.log(update)
+      const updateMessage = await this.sessionService.updateUserMessage(updatePending.answer, updatePending.turnId || "", updatePending.sessionId)
+      console.log(updatePending, updateMessage)
     }
 
     async forwardQueryStream(query:string, role:string, sessionId:string){
@@ -122,9 +123,11 @@ export class QueryService {
 
   async forwardQueryStreamResume(resumeDto:ResumeDto){
          const orchestratorUrl = this.configService.get<string>('ORCHESTRATOR_URL')||"";
+         console.log(resumeDto);
+         
          const res = await firstValueFrom(this.httpService.post(`${orchestratorUrl}/stream/resume`,{
       human_response:resumeDto.human_response,
-        threadId:resumeDto.threadId
+        thread_id:resumeDto.threadId
     },
     {
       headers: {
@@ -133,7 +136,7 @@ export class QueryService {
       responseType: 'stream' 
     }).pipe(
             catchError((error:AxiosError)=>{
-                this.logger.error(error.response?.data)
+                // this.logger.error(error.response?.data)
                 throw new InternalServerErrorException('An error occurred while contacting the orchestrator');
             }
          )

@@ -10,7 +10,7 @@ import { Roles } from 'src/guards/role/roleguard/role.decorator';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SessionService } from 'src/session/session.service';
 import { MessageRole } from 'generated/prisma/enums';
-interface AuthenticatedRequest extends Request{
+export interface AuthenticatedRequest extends Request{
     user:{sub:number; email:string; role: string};
 }
 @Controller('query')
@@ -97,52 +97,39 @@ export class QueryController {
         res.end()
     })
     }
-    @UseGuards(AuthguardGuard)
     @Roles("admin")
-    @UseGuards(RoleguardGuard)
-    @Post('stream/resume')
-    async queryStreamResume(@Body() resumeDto:ResumeDto, @Res() res:Response){
-        const stream = await this.queryService.forwardQueryStreamResume(resumeDto)
+    @UseGuards(AuthguardGuard, RoleguardGuard)
+   @Post('resolve-review')
+async resolveReviewEndpoint(@Body() resumeDto: ResumeDto) {
+    const stream = await this.queryService.forwardQueryStreamResume(resumeDto)
 
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive')
+    let buffer = ""
+    let answer = ""
+    let pausedAgain = false
 
-        let buffer = ""
-        let answer = ""
-        let pausedAgain = false
-        stream.on('data', (chunk: Buffer) => {
-            buffer += chunk.toString();
-            const frames = buffer.split("\n\n")
-            buffer = frames.pop() || ''
-            for (const frame of frames) {
-                const line = frame.split('\n').find(l => l.startsWith("data:"))
-                if (!line) continue;
-                const dataStr = line.slice(5).trim();
-                if (dataStr === '[DONE]') continue;
-
-                try {
-                    const parsed = JSON.parse(dataStr);
-                    if (parsed.status === 'paused_for_review') {
-                        pausedAgain = true
-                    } else if (typeof parsed.token === 'string') {
-                        answer += parsed.token
-                    }
-                } catch {
-                    // partial/non-JSON frame, ignore
-                }
-            }
-
-            res.write(chunk);
-        });
-
-        stream.on('end', async () => {
-            if (!pausedAgain) {
-                await this.queryService.resolveReview(resumeDto.threadId, answer)
-            }
-            res.end()
-        })
+    for await (const chunk of stream) {
+        buffer += chunk.toString()
+        const frames = buffer.split("\n\n")
+        buffer = frames.pop() || ''
+        for (const frame of frames) {
+            const line = frame.split('\n').find(l => l.startsWith("data:"))
+            if (!line) continue
+            const dataStr = line.slice(5).trim()
+            if (dataStr === '[DONE]') continue
+            try {
+                const parsed = JSON.parse(dataStr)
+                if (parsed.status === 'paused_for_review') pausedAgain = true
+                else if (typeof parsed.token === 'string') answer += parsed.token
+            } catch {}
+        }
     }
+
+    if (!pausedAgain) {
+        await this.queryService.resolveReview(resumeDto.threadId, answer)
+    }
+
+    return { success: true, pausedAgain }
+}
     @UseGuards(AuthguardGuard)
     @Post("flag")
     async flagQuery(@Body() flagDto:FlagDto, @Req() req:AuthenticatedRequest){

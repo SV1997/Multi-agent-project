@@ -11,6 +11,7 @@ export default {
         QUERY_RESUME: `${API_BASE_URL}/query/resume`,
         QUERY_STREAM: `${API_BASE_URL}/query/stream`,
         QUERY_STREAM_RESUME: `${API_BASE_URL}/query/stream/resume`,
+        QUERY_RESOLVE_REVIEW: `${API_BASE_URL}/query/resolve-review`,
         QUERY_FLAG: `${API_BASE_URL}/query/flag`,
     },
     session:{

@@ -156,6 +156,7 @@ async def stream_query(req:OrchestratorRequest):
     dependencies=[Depends(verify_internal_secret)]
 )
 async def stream_query_resume(req:RequestResume):
+    print(req)
     return StreamingResponse(
         event_generator_resume(req),
         media_type="text/event-stream"

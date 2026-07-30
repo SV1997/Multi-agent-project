@@ -8,9 +8,9 @@ import CustomErrorPage from "../components/CustomErorPage/customErorPage";
 import { ProtectedRoute, PublicRoute } from "../HOC/HOC";
 const LoginPage = PublicRoute(lazy(() => (import("../components/Login/loginPage"))));
 const SignUpPage = PublicRoute(lazy(() => import("../components/SignUp/SignUp")));
-const DashboardPage = lazy(()=>import("../components/Dashboard/Dashboard"))
-const ProtectedDashboardPage = ProtectedRoute(DashboardPage)
-const AdminReview = ProtectedRoute(lazy(()=>import("../components/AdminReview/AdminReview")))
+const DashboardPage = ProtectedRoute([])(lazy(()=>import("../components/Dashboard/Dashboard")))
+const ProtectedDashboardPage = DashboardPage
+const AdminReview =  ProtectedRoute(["admin"])(lazy(()=>import("../components/AdminReview/AdminReview")))
 
 export const router = createBrowserRouter([
     {

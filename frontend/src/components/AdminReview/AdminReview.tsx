@@ -1,5 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { Scale, Users, Cpu, Code2, LifeBuoy, Check, Pencil, Loader2, Inbox } from "lucide-react";
+import { fetchRequestGet, fetchRequestPost } from "../../common/NetworkOps";
+import ApiObj from "../../common/ApiObj";
+import { showToastError, showToastSuccess } from "../../toastMessage/toast";
 
 type Agent = {
   id: string;
@@ -44,7 +48,7 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
   );
 }
 
-function ReviewCard({ review }: { review: PendingReviewRow }) {
+function ReviewCard({ review,setReviews }: { review: PendingReviewRow, setReviews:Dispatch<SetStateAction<PendingReviewRow[]>> }) {
   const agent = AGENTS[review.domain] ?? AGENTS.support_agent;
   const Icon = agent.icon;
 
@@ -64,11 +68,19 @@ function ReviewCard({ review }: { review: PendingReviewRow }) {
   const handleApprove = async () => {
     setSubmitting(true);
     try {
-      // TODO: build human_response = isEdited
-      //   ? { edited: true, revised_answer: draft }
-      //   : { edited: false }
-      // TODO: call resolveReview(review.threadId, human_response)
-      // TODO: on success, remove this card from the parent's `reviews` list
+        const humanResponse = isEdited?
+        {edited:true, revised_answer:draft, approved:true}:
+        {edited:false, revised_answer:draft, approved:true};
+
+        const res:any = await fetchRequestPost(ApiObj.query.QUERY_RESOLVE_REVIEW,{threadId:review.threadId, human_response:humanResponse})
+        if(res.success){
+            showToastSuccess("query has been approved")
+            setReviews((prev)=>{
+            return prev.filter((r)=>{
+                return r.threadId!== review.threadId
+            })         
+            })
+        }
     } finally {
       setSubmitting(false);
     }
@@ -176,9 +188,24 @@ function EmptyState() {
 
 export default function AdminReviewQueue() {
   // TODO: replace with real fetch — GET /query/pending-reviews
-  const [reviews] = useState<PendingReviewRow[]>([]);
-  const [loading] = useState(false);
-
+  const [reviews, setReviews] = useState<PendingReviewRow[]>([]);
+  const [loading, setLoading] = useState(false);
+    useEffect(()=>{
+        async function fetchReviews(){
+            try {
+                setLoading(true)
+            const reviews:any =await  fetchRequestGet(ApiObj.query.QUERY_PENDING_REVIEWS);
+            console.log(reviews);
+            
+            setReviews(reviews)
+            setLoading(false)
+        }
+        catch{
+            showToastError("error in fetching review")
+        }
+        }
+        fetchReviews()
+    },[])
   return (
     <div className="min-h-screen bg-[#0B0F17] px-8 py-10">
       <div className="mx-auto max-w-3xl">
@@ -202,7 +229,7 @@ export default function AdminReviewQueue() {
         {!loading && reviews.length > 0 && (
           <div className="flex flex-col gap-4">
             {reviews.map((r) => (
-              <ReviewCard key={r.threadId} review={r} />
+              <ReviewCard key={r.threadId} setReviews={setReviews} review={r} />
             ))}
           </div>
         )}
