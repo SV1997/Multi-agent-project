@@ -5,7 +5,7 @@ import { ROLE_NAMESPACE_ACCESS } from 'src/auth/rbac';
 import { firstValueFrom, catchError } from 'rxjs';
 import { AxiosError } from 'axios';
 import { Logger } from '@nestjs/common';
-import { InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { InternalServerErrorException, NotFoundException, ConflictException } from '@nestjs/common';
 import { ResumeDto } from './dto/resume.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { FlagDto } from './dto/flag.dto';
@@ -139,7 +139,7 @@ export class QueryService {
     return res.data
     }
 
-    async forwardQueryStreamPrismaInitiate(threadId:string,reviewPayload:any,userId: number, domain:string, sessionId: string){
+    async forwardQueryStreamPrismaInitiate(threadId:string,reviewPayload:any,userId: number, domain:string, sessionId: string, turnId: string){
       try {
         const review = await this.prismaService.pendingReview.create({
           data:{
@@ -189,12 +189,19 @@ export class QueryService {
       return pr
     }
 
-     async getMyPendingReview(userId:Number){
+     async getMyPendingReview(userId:Number, sessionId:string){
       const pr = this.prismaService.pendingReview.findMany({
-        where:{userId: Number(userId)}
+        where:{userId: Number(userId), sessionId:sessionId}
       })
       console.log(pr);
       return pr
     }
- 
+    async isSessionPending(sessionId:string){
+      const existingPending = await this.prismaService.pendingReview.findFirst({
+    where: { sessionId, resolved: false }
+})
+if (existingPending) {
+    throw new ConflictException('This session has a pending review awaiting admin approval')
+}
+    }
 }
