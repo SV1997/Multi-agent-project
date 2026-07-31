@@ -9,6 +9,7 @@ const authRoutes = [
     config.query.QUERY_RESUME,
     config.query.QUERY_STREAM,
     config.query.QUERY_STREAM_RESUME,
+    config.query.QUERY_RESOLVE_REVIEW,
     config.query.QUERY_FLAG,
     config.session.SESSION,
 ]

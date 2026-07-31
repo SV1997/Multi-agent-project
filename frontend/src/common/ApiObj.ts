@@ -11,6 +11,7 @@ const ApiObj = {
         QUERY_RESUME: '/query/resume',
         QUERY_STREAM: '/query/stream',
         QUERY_STREAM_RESUME: '/query/stream/resume',
+        QUERY_RESOLVE_REVIEW: '/query/resolve-review',
         QUERY_FLAG: '/query/flag',
         QUERY_PENDING_REVIEWS: '/query/pending-reviews',
         QUERY_NOTIFICATIONS: (thread_id: string) => `/query/notifications/${thread_id}`,
