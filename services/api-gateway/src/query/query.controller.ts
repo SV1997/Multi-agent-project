@@ -150,7 +150,16 @@ async resolveReviewEndpoint(@Body() resumeDto: ResumeDto) {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive')
 
+        const existing = await this.queryService.getReviewByThreadId(thread_id)
+        if (existing?.resolved) {
+            res.write(`data:${JSON.stringify({status:'resolved', result:{answer: existing.answer}})}\n\n`);
+            res.end();
+            return
+        }
+
         const listener = (result:any)=>{
+            console.log(result,"161");
+            
             res.write(`data:${JSON.stringify({status:'resolved', result})}\n\n`);
             res.end();
         }

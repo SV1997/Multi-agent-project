@@ -142,7 +142,6 @@ export class QueryService {
          )
         ),
     )
-    await this.resolveReview(resumeDto.threadId, res.data.answer, res.data)
     return res.data
     }
 
@@ -213,6 +212,10 @@ export class QueryService {
       })
       console.log(pr);
       return pr
+    }
+
+    async getReviewByThreadId(threadId:string){
+      return this.prismaService.pendingReview.findUnique({where:{threadId}})
     }
 
      async getMyPendingReview(userId:Number, sessionId:string){

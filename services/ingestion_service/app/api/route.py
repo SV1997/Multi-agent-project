@@ -21,6 +21,7 @@ async def ingest(req:IngestionRequest):
         all_chunks=[]
         
         for source in req.source:
+            
             docs = load_document(
                 source = source.path,
                 source_type = source.type
