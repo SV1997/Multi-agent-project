@@ -3,9 +3,9 @@ FROM python:3.12-slim
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-COPY services/retrieval-service services/retrieval-service
+COPY services/retrieval-service ./services/retrieval-service
 
-RUN pip install uv && uv sync --frozen --package retriever-service
+RUN pip install uv && uv sync --frozen --package retrieval-service
 
 WORKDIR /app/services/retrieval-service
 
