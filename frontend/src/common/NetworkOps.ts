@@ -148,6 +148,19 @@ export const fetchRequestPost = async (url: string, body = {}) => {
     }
 }
 
+export const fetchRequestPostFormData = async (url: string, formData: FormData) => {
+    try {
+        // no explicit Content-Type — axios/browser sets the multipart boundary automatically
+        const response = await api.post(baseUrl + url, formData, {
+            withCredentials: true
+        })
+        return response
+    } catch (error) {
+        console.error("error in POST (form-data) request:", error)
+        return Promise.reject(error)
+    }
+}
+
 export const fetchRequestPut = async (url: string, body = {}) => {
     try {
         const response = await api.put(baseUrl + url, body, {
