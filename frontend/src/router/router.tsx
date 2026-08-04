@@ -11,7 +11,7 @@ const SignUpPage = PublicRoute(lazy(() => import("../components/SignUp/SignUp"))
 const DashboardPage = ProtectedRoute([])(lazy(()=>import("../components/Dashboard/Dashboard")))
 const ProtectedDashboardPage = DashboardPage
 const AdminReview =  ProtectedRoute(["admin"])(lazy(()=>import("../components/AdminReview/AdminReview")))
-
+const Ingestion =  ProtectedRoute(["admin"])(lazy(()=>import("../components/Ingestion/Ingestion")))
 export const router = createBrowserRouter([
     {
         path: "/",
@@ -71,6 +71,19 @@ export const router = createBrowserRouter([
                     }>
                         <Suspense fallback={<Loader></Loader>}>
                         <AdminReview/>
+                        </Suspense>
+
+                    </ErrorBoundary>
+                )
+            },
+            {
+                path:"ingestion",
+                element:(
+                    <ErrorBoundary fallbackRender={(props)=>
+                        <CustomErrorPage {...props} componentName="ingestion"/>
+                    }>
+                        <Suspense fallback={<Loader></Loader>}>
+                        <Ingestion/>
                         </Suspense>
 
                     </ErrorBoundary>

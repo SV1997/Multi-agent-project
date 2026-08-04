@@ -24,6 +24,7 @@ const ApiObj = {
     },
     ingestion:{
         INGESTION: '/ingestion',
+        UPLOAD: '/ingestion/upload',
     },
     health:{
         HEALTH: '/health',
