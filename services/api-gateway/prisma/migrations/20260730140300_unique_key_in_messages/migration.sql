@@ -5,7 +5,7 @@
 
 */
 -- DropIndex
-DROP INDEX "Message_turnId_sessionId_role_key";
+DROP INDEX IF EXISTS "Message_turnId_sessionId_role_key";
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Message_sessionId_role_turnId_key" ON "Message"("sessionId", "role", "turnId");
