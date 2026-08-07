@@ -69,8 +69,12 @@ export class AuthService {
                 role:'guest'
             }
         })
-        
-        return {messsage:"User registered successfully", data:{email:email, password: password}, statusCode:200}
+        const token=this.jwtService.sign({
+            sub:newUser.id,
+            email:email,
+            role:newUser.role
+        })
+        return {messsage:"User registered successfully", data:{email:email, password: password, accessToken:token}, statusCode:200}
         }
 
     async refreshToken(rawToken:string){

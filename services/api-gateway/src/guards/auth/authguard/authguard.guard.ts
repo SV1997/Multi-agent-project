@@ -12,7 +12,6 @@ export class AuthguardGuard implements CanActivate {
     const queryToken = request.query.token
     const header = request.headers["authorization"]
     if (!header && !queryToken) {
-      
       throw new UnauthorizedException('No token available')
     }
     try {
