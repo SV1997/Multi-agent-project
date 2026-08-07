@@ -17,7 +17,7 @@ router = APIRouter()
 SUPERVISOR_KEY = "supervisor"
 
 async def event_generator(req:OrchestratorRequest):
-    thread_id = str(uuid4())
+    thread_id = req.thread_id
     supervisor = app_state[SUPERVISOR_KEY]
     config = {"configurable":{"thread_id": thread_id}}
     initial_state = {
@@ -67,7 +67,7 @@ async def event_generator_resume(req:RequestResume):
     config = {"configurable":{"thread_id": req.thread_id}}
     supervisor = app_state[SUPERVISOR_KEY]
 
-    async for event in supervisor.astream_events(Command(resume=req.human_response.model_dump()),version="v1", config=config):
+    async for event in supervisor.astream_events(Command(resume=req.human_response.model_dump()),version="v2", config=config):
         if event["event"] == "on_chat_model_stream":
             chunk = event["data"]["chunk"]
             if chunk.content:
@@ -89,7 +89,7 @@ async def event_generator_resume(req:RequestResume):
     dependencies=[Depends(verify_internal_secret)]
 )
 async def orchatrator_query(req:OrchestratorRequest):
-    thread_id = str(uuid4())
+    thread_id = req.thread_id if req.thread_id else str(uuid4())
     config = {"configurable":{"thread_id": thread_id}}
     supervisor = app_state[SUPERVISOR_KEY]
     result = await supervisor.ainvoke({
@@ -156,6 +156,7 @@ async def stream_query(req:OrchestratorRequest):
     dependencies=[Depends(verify_internal_secret)]
 )
 async def stream_query_resume(req:RequestResume):
+    print(req)
     return StreamingResponse(
         event_generator_resume(req),
         media_type="text/event-stream"
