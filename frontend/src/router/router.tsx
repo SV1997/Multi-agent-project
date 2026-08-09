@@ -19,7 +19,7 @@ export const router = createBrowserRouter([
         errorElement: <PageNotFound />,
         children: [{
             index:true,
-            element:<Suspense fallback={<Loader />}></Suspense>
+            element:<Suspense fallback={<Loader />}><LoginPage/></Suspense>
         },
             {
                 path: "login",
