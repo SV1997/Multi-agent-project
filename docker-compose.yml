@@ -61,7 +61,7 @@ services:
     build: 
       context: ./frontend
       args:
-        VITE_BASE_URL: https://multiagentragsystem.duckdns.org:3000
+        VITE_BASE_URL: https://multiagentragsystem.duckdns.org:3000/api
     ports:
       - "80:80"
       - "443:443"
