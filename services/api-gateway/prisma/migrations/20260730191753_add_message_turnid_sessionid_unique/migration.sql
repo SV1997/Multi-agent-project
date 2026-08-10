@@ -1,0 +1,3 @@
+-- This migration originally recreated "Message_turnId_sessionId_role_key", the index
+-- that 20260730140300_unique_key_in_messages renamed to "Message_sessionId_role_turnId_key".
+-- Superseded by that rename; kept as a no-op so migration history stays intact.
