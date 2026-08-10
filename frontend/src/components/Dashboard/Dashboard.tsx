@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { jwtDecode } from "jwt-decode";
 import { useChatStream } from "../../custom_hooks/useChatStream";
 import { fetchRequestGet, fetchRequestPost } from "../../common/NetworkOps";
 import ApiObj from "../../common/ApiObj";
@@ -35,6 +36,19 @@ export default function Dashboard() {
   const reviewSourcesRef = useRef<EventSource[]>([]);
 
   const { state, sendQuery } = useChatStream();
+
+  const isAdmin = useMemo(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) return false;
+    try {
+      return jwtDecode<{ role: string }>(token).role === "admin";
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const handleNavigateAdminReview = useCallback(() => navigate("/adminReview"), [navigate]);
+  const handleNavigateIngestion = useCallback(() => navigate("/ingestion"), [navigate]);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -277,6 +291,9 @@ export default function Dashboard() {
         toolCalls={state.toolCalls}
         onCreateSession={handleCreateSession}
         onSelectSession={handleSelectSession}
+        isAdmin={isAdmin}
+        onNavigateAdminReview={handleNavigateAdminReview}
+        onNavigateIngestion={handleNavigateIngestion}
       />
 
       {/* CENTER — TRANSCRIPT */}

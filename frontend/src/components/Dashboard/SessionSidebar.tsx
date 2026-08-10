@@ -1,4 +1,4 @@
-import { Plus, MessageSquare } from "lucide-react";
+import { Plus, MessageSquare, ShieldCheck, UploadCloud } from "lucide-react";
 import { COLORS, AGENTS } from "./constants";
 import type { Agent, SessionSummary } from "./types";
 
@@ -11,6 +11,9 @@ type SessionSidebarProps = {
   toolCalls: string[];
   onCreateSession: () => void;
   onSelectSession: (sessionId: string) => void;
+  isAdmin?: boolean;
+  onNavigateAdminReview?: () => void;
+  onNavigateIngestion?: () => void;
 };
 
 export default function SessionSidebar({
@@ -22,6 +25,9 @@ export default function SessionSidebar({
   toolCalls,
   onCreateSession,
   onSelectSession,
+  isAdmin,
+  onNavigateAdminReview,
+  onNavigateIngestion,
 }: SessionSidebarProps) {
   return (
     <div
@@ -198,6 +204,67 @@ export default function SessionSidebar({
               🔧 {tool}
             </div>
           ))}
+        </div>
+      )}
+
+      {isAdmin && (
+        <div style={{ marginTop: 16 }}>
+          <div
+            style={{
+              fontFamily: "'IBM Plex Mono', monospace",
+              fontSize: 10,
+              color: COLORS.faint,
+              letterSpacing: 1,
+              marginBottom: 8,
+              paddingLeft: 4,
+            }}
+          >
+            ADMIN
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <button
+              onClick={onNavigateAdminReview}
+              style={{
+                background: COLORS.raised,
+                border: `1px solid ${COLORS.hairline}`,
+                color: COLORS.paper,
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 12.5,
+                fontWeight: 500,
+                padding: "8px 10px",
+                borderRadius: 8,
+                textAlign: "left",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <ShieldCheck size={13} color={COLORS.signal} />
+              Admin review
+            </button>
+            <button
+              onClick={onNavigateIngestion}
+              style={{
+                background: COLORS.raised,
+                border: `1px solid ${COLORS.hairline}`,
+                color: COLORS.paper,
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 12.5,
+                fontWeight: 500,
+                padding: "8px 10px",
+                borderRadius: 8,
+                textAlign: "left",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <UploadCloud size={13} color={COLORS.signal} />
+              Ingestion
+            </button>
+          </div>
         </div>
       )}
 
