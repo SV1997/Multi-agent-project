@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: retrieval-service
 spec:
+  imagePullSecrets:
+    - name: ecr-secret
   replicas: 1
   selector:
     matchLabels:

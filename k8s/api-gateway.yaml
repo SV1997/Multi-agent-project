@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: api-gateway
 spec:
+  imagePullSecrets:
+    - name: ecr-secret
   replicas: 1
   selector:
     matchLabels:
