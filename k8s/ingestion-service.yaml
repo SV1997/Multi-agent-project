@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: ingestion-service
+spec:
+  replicas: 1
+  selector: 
+    matchLabels:
+      app: ingestion-service
+  template:
+    metadata:
+      labels:
+        app: ingestion-service
+    spec: 
+      containers:
+        - name: ingestion-service
+          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/ingestion-service:latest
+          ports:
+            - containerPort: 8002
+          envFrom:
+            - secretRef:
+                name: ingestion-service-env
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingestion-service
+spec: 
+  selector: 
+    app: ingestion-service
+  ports:
+    - port: 8002
+      targetPort: 8002
