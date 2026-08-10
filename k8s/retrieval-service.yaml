@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: retieval-service
+  name: retrieval-service
 spec:
   replicas: 1
   selector:
@@ -23,7 +23,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metdata:
+metadata:
   name: retrieval-service
 spec:
   selector:
