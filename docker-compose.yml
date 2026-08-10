@@ -49,6 +49,7 @@ services:
       # - postgres
       - orchestrator
       - seaweedfs
+    restart: always
   # frontend:
   #   build: 
   #     context: ./frontend
