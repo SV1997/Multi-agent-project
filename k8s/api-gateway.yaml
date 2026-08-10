@@ -3,8 +3,6 @@ kind: Deployment
 metadata:
   name: api-gateway
 spec:
-  imagePullSecrets:
-    - name: ecr-secret
   replicas: 1
   selector:
     matchLabels:
@@ -14,6 +12,8 @@ spec:
       labels:
         app: api-gateway
     spec:
+      imagePullSecrets:            # ← imagePullSecrets goes HERE
+        - name: ecr-secret
       containers:
         - name: api-gateway
           image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/api-gateway:latest

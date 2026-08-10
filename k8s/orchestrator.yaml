@@ -3,8 +3,6 @@ kind: Deployment
 metadata:
   name: orchestrator
 spec:
-  imagePullSecrets:
-    - name: ecr-secret
   replicas: 1
   selector:
     matchLabels:
@@ -14,6 +12,8 @@ spec:
       labels:
         app: orchestrator
     spec:
+      imagePullSecrets:            # ← imagePullSecrets goes HERE
+        - name: ecr-secret
       containers:
         - name: orchestrator
           image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/orchestrator:latest

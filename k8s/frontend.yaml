@@ -3,8 +3,6 @@ kind: Deployment
 metadata:
   name: frontend
 spec:
-  imagePullSecrets:
-    - name: ecr-secret
   replicas: 1
   selector:
     matchLabels:
@@ -14,6 +12,8 @@ spec:
       labels:
         app: frontend
     spec:
+      imagePullSecrets:            # ← imagePullSecrets goes HERE
+        - name: ecr-secret
       containers:
         - name: frontend
           image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/frontend:latest

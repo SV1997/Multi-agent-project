@@ -3,8 +3,6 @@ kind: Deployment
 metadata: 
   name: ingestion-service
 spec:
-  imagePullSecrets:
-    - name: ecr-secret
   replicas: 1
   selector: 
     matchLabels:
@@ -13,7 +11,9 @@ spec:
     metadata:
       labels:
         app: ingestion-service
-    spec: 
+    spec:
+      imagePullSecrets:            # ← imagePullSecrets goes HERE
+        - name: ecr-secret
       containers:
         - name: ingestion-service
           image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/ingestion-service:latest
