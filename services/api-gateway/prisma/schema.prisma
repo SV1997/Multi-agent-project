@@ -1,0 +1,116 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  guest
+  legal_team
+  hr_team
+  support_team
+  engineering_team
+  admin
+  superadmin
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+model User {
+  id             Int             @id @default(autoincrement())
+  name           String
+  Email          String          @unique
+  role           Role            @default(guest)
+  password       String
+  createdAT      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  ingestionLogs  IngestionLog[]
+  flaggedAnswers FlaggedAnswer[]
+  pendingRevieww PendingReview[]
+  session Session[]
+  refreshToken RefreshToken[]
+}
+
+model Session {
+id  String @id @default(uuid())
+thread_id String @unique
+userId Int
+user User @relation(fields:[userId], references: [id])
+messages Message[]
+pendingReview PendingReview[]
+created_At DateTime @default(now())
+updatedAt DateTime @updatedAt
+}
+
+
+model Message{
+id        String   @id @default(uuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id])
+  role      MessageRole
+  content   String
+  turnId    String
+  createdAt DateTime @default(now())
+
+  @@unique([sessionId,role,turnId])
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model IngestionLog {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  user       User     @relation(fields: [user_id], references: [id])
+  namespace  String
+  sources    Json
+  status     String
+  created_At DateTime @default(now())
+}
+
+model FlaggedAnswer {
+  id              Int      @id @default(autoincrement())
+  flaggedByUserId Int
+  user            User     @relation(fields: [flaggedByUserId], references: [id])
+  domain          String
+  answer          String
+  Sources         Json
+  reason          String?
+  created_At      DateTime @default(now())
+}
+
+model PendingReview {
+  id            Int       @id @default(autoincrement())
+  threadId      String    @unique
+  userId        Int
+  user          User      @relation(fields: [userId], references: [id])
+  domain        String
+  answer        String
+  turnId        String?
+  sessionId     String
+  session       Session @relation(fields: [sessionId], references: [id])
+  sources       Json
+  confidence    Float
+  createdAt     DateTime  @default(now())
+  resolved      Boolean   @default(false)
+  resolvedAt    DateTime?
+}
