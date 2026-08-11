@@ -1,4 +1,4 @@
-import { Plus, MessageSquare, ShieldCheck, UploadCloud } from "lucide-react";
+import { Plus, MessageSquare, ShieldCheck, UploadCloud, X } from "lucide-react";
 import { COLORS, AGENTS } from "./constants";
 import type { Agent, SessionSummary } from "./types";
 
@@ -14,6 +14,8 @@ type SessionSidebarProps = {
   isAdmin?: boolean;
   onNavigateAdminReview?: () => void;
   onNavigateIngestion?: () => void;
+  className?: string;
+  onClose?: () => void;
 };
 
 export default function SessionSidebar({
@@ -28,9 +30,12 @@ export default function SessionSidebar({
   isAdmin,
   onNavigateAdminReview,
   onNavigateIngestion,
+  className,
+  onClose,
 }: SessionSidebarProps) {
   return (
     <div
+      className={className}
       style={{
         width: 248,
         flexShrink: 0,
@@ -63,6 +68,16 @@ export default function SessionSidebar({
             MULTI-AGENT CONSOLE
           </div>
         </div>
+        {onClose && (
+          <button
+            className="sb-mobile-toggle sb-panel-close"
+            onClick={onClose}
+            aria-label="Close sessions"
+            style={{ marginLeft: "auto", background: "transparent", border: "none", cursor: "pointer" }}
+          >
+            <X size={18} color={COLORS.muted} />
+          </button>
+        )}
       </div>
 
       <button

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { jwtDecode } from "jwt-decode";
+import { Menu, Radio } from "lucide-react";
 import { useChatStream } from "../../custom_hooks/useChatStream";
 import { fetchRequestGet, fetchRequestPost } from "../../common/NetworkOps";
 import ApiObj from "../../common/ApiObj";
@@ -29,6 +30,8 @@ export default function Dashboard() {
   const [creatingSession, setCreatingSession] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [, setPendingReviews] = useState<PendingReview[]>([]);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [mobileRailOpen, setMobileRailOpen] = useState(false);
   const loadedSessionIdRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentAssisstantIdRef = useRef<string | null>(null);
@@ -118,6 +121,7 @@ export default function Dashboard() {
       setSessions((prev) => [newSession, ...prev]);
       resetConversationState();
       loadedSessionIdRef.current = newSession.id;
+      setMobileSidebarOpen(false);
       navigate(`/dashboard/${newSession.id}`);
     } catch (err) {
       console.error("Failed to create session", err);
@@ -127,6 +131,7 @@ export default function Dashboard() {
   }, [creatingSession, navigate]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
+    setMobileSidebarOpen(false);
     if (sessionId === activeSessionId) return;
     navigate(`/dashboard/${sessionId}`);
   }, [activeSessionId, navigate]);
@@ -271,6 +276,7 @@ export default function Dashboard() {
 
   return (
     <div
+      className="sb-shell"
       style={{
         background: COLORS.ink,
         color: COLORS.paper,
@@ -282,7 +288,42 @@ export default function Dashboard() {
     >
       <GlobalStyles />
 
+      <div
+        className={`sb-backdrop${mobileSidebarOpen || mobileRailOpen ? " open" : ""}`}
+        onClick={() => {
+          setMobileSidebarOpen(false);
+          setMobileRailOpen(false);
+        }}
+      />
+
+      {/* MOBILE TOP BAR */}
+      <div className="sb-mobile-bar">
+        <button
+          className="sb-mobile-toggle"
+          onClick={() => setMobileSidebarOpen(true)}
+          aria-label="Open sessions"
+        >
+          <Menu size={18} color={COLORS.paper} />
+        </button>
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 14 }}>
+          SWITCHBOARD
+        </div>
+        {activeSessionId ? (
+          <button
+            className="sb-mobile-toggle"
+            onClick={() => setMobileRailOpen(true)}
+            aria-label="Open routing status"
+          >
+            <Radio size={18} color={COLORS.paper} />
+          </button>
+        ) : (
+          <span style={{ width: 34 }} />
+        )}
+      </div>
+
       <SessionSidebar
+        className={`sb-sidebar${mobileSidebarOpen ? " open" : ""}`}
+        onClose={() => setMobileSidebarOpen(false)}
         sessions={sessions}
         sessionsLoading={sessionsLoading}
         activeSessionId={activeSessionId}
@@ -297,7 +338,7 @@ export default function Dashboard() {
       />
 
       {/* CENTER — TRANSCRIPT */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <div className="sb-center" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         {!activeSessionId ? (
           <EmptySessionState
             hasSessions={sessions.length > 0}
@@ -319,7 +360,14 @@ export default function Dashboard() {
         )}
       </div>
 
-      <RoutingRail stageIndex={stageIndex} isBusy={isBusy} activeAgent={activeAgent} sources={sources} />
+      <RoutingRail
+        className={`sb-rail${mobileRailOpen ? " open" : ""}`}
+        onClose={() => setMobileRailOpen(false)}
+        stageIndex={stageIndex}
+        isBusy={isBusy}
+        activeAgent={activeAgent}
+        sources={sources}
+      />
     </div>
   );
 }
