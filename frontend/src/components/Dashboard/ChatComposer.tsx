@@ -13,7 +13,7 @@ export default function ChatComposer({ input, onInputChange, onSend, isBusy, loa
   const disabled = isBusy || !input.trim() || loadingMessages;
 
   return (
-    <div style={{ padding: "16px 28px 22px", borderTop: `1px solid ${COLORS.hairline}` }}>
+    <div className="sb-composer" style={{ padding: "16px 28px 22px", borderTop: `1px solid ${COLORS.hairline}` }}>
       <div
         style={{
           maxWidth: 720,

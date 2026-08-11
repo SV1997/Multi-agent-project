@@ -47,8 +47,9 @@ export const registerUser = createAsyncThunk(
         ApiObj.auth.REGISTER,
         JSON.stringify(credentials)
       );
-      localStorage.setItem("accessToken", response.accessToken);
-      return response;
+      const accessToken = response.data?.accessToken;
+      localStorage.setItem("accessToken", accessToken);
+      return { accessToken };
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || "Registration failed");
     }
