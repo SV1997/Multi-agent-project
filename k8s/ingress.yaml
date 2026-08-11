@@ -6,7 +6,7 @@ metadata:
     kubernetes.io/ingress.class: "traefik"
 spec:
   rules:
-    - host: multiagentragsystem.duckdns.org
+    - host: multiagentragsystem.online
       http:
         paths:
           - path: /
