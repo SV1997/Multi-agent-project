@@ -5,6 +5,10 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: "traefik"
 spec:
+  tls:
+    - hosts:
+        - multiagentragsystem.duckdns.org
+      secretName: duckdns-tls
   rules:
     - host: multiagentragsystem.duckdns.org
       http:
