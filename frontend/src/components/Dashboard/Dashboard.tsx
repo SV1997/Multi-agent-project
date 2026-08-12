@@ -338,7 +338,7 @@ export default function Dashboard() {
       />
 
       {/* CENTER — TRANSCRIPT */}
-      <div className="sb-center" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <div className="sb-center" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>
         {!activeSessionId ? (
           <EmptySessionState
             hasSessions={sessions.length > 0}

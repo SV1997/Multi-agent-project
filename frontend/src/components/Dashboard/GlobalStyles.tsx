@@ -25,8 +25,8 @@ export default function GlobalStyles() {
           flex-shrink: 0;
         }
         .sb-mobile-toggle { display: inline-flex; align-items: center; justify-content: center; }
-        .sb-shell { flex-direction: column !important; height: 100vh !important; }
-        .sb-center { min-width: 0 !important; }
+        .sb-shell { flex-direction: column !important; height: 100vh !important; height: 100dvh !important; }
+        .sb-center { min-width: 0 !important; min-height: 0 !important; }
 
         .sb-sidebar, .sb-rail {
           position: fixed !important;
@@ -35,11 +35,13 @@ export default function GlobalStyles() {
           width: 82vw !important;
           max-width: 300px;
           height: 100vh;
+          height: 100dvh;
           z-index: 45;
           background: #0B0F17;
           box-shadow: 0 0 24px rgba(0,0,0,0.5);
           transition: transform 0.25s ease;
           overflow-y: auto;
+          display: flex !important;
         }
         .sb-sidebar { left: 0; transform: translateX(-100%); }
         .sb-sidebar.open { transform: translateX(0); }
@@ -52,6 +54,20 @@ export default function GlobalStyles() {
           inset: 0;
           background: rgba(0,0,0,0.5);
           z-index: 40;
+        }
+
+        .sb-msglist {
+          min-height: 0 !important;
+          padding-bottom: 96px !important;
+        }
+
+        .sb-composer {
+          position: fixed !important;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 35;
+          background: #0B0F17;
         }
       }
 

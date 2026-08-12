@@ -14,7 +14,7 @@ const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function Messag
   scrollRef
 ) {
   return (
-    <div ref={scrollRef} className="sb-scroll sb-msglist" style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
+    <div ref={scrollRef} className="sb-scroll sb-msglist" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", minHeight: 0 }}>
       {loadingMessages && (
         <div style={{ textAlign: "center", color: COLORS.muted, fontSize: 13, paddingTop: 40 }}>
           Loading session…
