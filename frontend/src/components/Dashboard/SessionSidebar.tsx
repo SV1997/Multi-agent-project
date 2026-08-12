@@ -64,7 +64,7 @@ export default function SessionSidebar({
         </div>
         <div>
           <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: 0.3 }}>
-            SWITCHBOARD
+            MULTI-AGENT-SYSTEM
           </div>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: COLORS.muted, letterSpacing: 0.5 }}>
             MULTI-AGENT CONSOLE
