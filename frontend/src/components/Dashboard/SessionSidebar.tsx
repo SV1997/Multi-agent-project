@@ -1,4 +1,5 @@
-import { Plus, MessageSquare, ShieldCheck, UploadCloud, X } from "lucide-react";
+import { useState } from "react";
+import { Plus, MessageSquare, ShieldCheck, UploadCloud, X, Info } from "lucide-react";
 import { COLORS, AGENTS } from "./constants";
 import type { Agent, SessionSummary } from "./types";
 
@@ -33,6 +34,7 @@ export default function SessionSidebar({
   className,
   onClose,
 }: SessionSidebarProps) {
+  const [aboutOpen, setAboutOpen] = useState(false);
   return (
     <div
       className={className}
@@ -156,59 +158,31 @@ export default function SessionSidebar({
         })}
       </div>
 
-      <div
+      <button
+        onClick={() => setAboutOpen(true)}
         style={{
-          fontFamily: "'IBM Plex Mono', monospace",
-          fontSize: 10,
-          color: COLORS.faint,
-          letterSpacing: 1,
-          marginBottom: 12,
-          paddingLeft: 4,
+          background: "transparent",
+          border: `1px solid ${COLORS.hairline}`,
+          color: COLORS.muted,
+          fontFamily: "'Inter', sans-serif",
+          fontSize: 12.5,
+          fontWeight: 500,
+          padding: "8px 10px",
+          borderRadius: 8,
+          textAlign: "left",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexShrink: 0,
         }}
       >
-        SPECIALISTS
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {AGENTS.map((a) => {
-          const Icon = a.icon;
-          const isActive = activeAgent?.id === a.id;
-          return (
-            <div
-              key={a.id}
-              style={{
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 10,
-                padding: "9px 8px",
-                borderRadius: 8,
-                background: isActive ? COLORS.raised : "transparent",
-                transition: "background 0.2s",
-              }}
-            >
-              <div
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 6,
-                  background: `${a.color}1F`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                  marginTop: 1,
-                }}
-              >
-                <Icon size={13} color={a.color} strokeWidth={2} />
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: COLORS.paper }}>{a.name}</div>
-                <div style={{ fontSize: 11, color: COLORS.muted, lineHeight: 1.3 }}>{a.desc}</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+        <Info size={13} color={COLORS.signal} />
+        About specialists
+        {activeAgent && (
+          <span style={{ marginLeft: "auto", width: 6, height: 6, borderRadius: 999, background: activeAgent.color, flexShrink: 0 }} />
+        )}
+      </button>
       {toolCalls.length > 0 && (
         <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: COLORS.faint, letterSpacing: 1 }}>
@@ -295,6 +269,100 @@ export default function SessionSidebar({
       >
         v0.1 · {sessions.length} session{sessions.length === 1 ? "" : "s"}
       </div>
+
+      {aboutOpen && (
+        <div
+          onClick={() => setAboutOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            zIndex: 200,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: 380,
+              maxHeight: "80vh",
+              overflowY: "auto",
+              background: COLORS.panel,
+              border: `1px solid ${COLORS.hairline}`,
+              borderRadius: 12,
+              padding: 20,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+              <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 15 }}>
+                About
+              </div>
+              <button
+                onClick={() => setAboutOpen(false)}
+                aria-label="Close about"
+                style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}
+              >
+                <X size={18} color={COLORS.muted} />
+              </button>
+            </div>
+            <div
+              style={{
+                fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: 10,
+                color: COLORS.faint,
+                letterSpacing: 1,
+                margin: "16px 0 10px",
+              }}
+            >
+              SPECIALISTS
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {AGENTS.map((a) => {
+                const Icon = a.icon;
+                const isActive = activeAgent?.id === a.id;
+                return (
+                  <div
+                    key={a.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 10,
+                      padding: "9px 8px",
+                      borderRadius: 8,
+                      background: isActive ? COLORS.raised : "transparent",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 26,
+                        height: 26,
+                        borderRadius: 6,
+                        background: `${a.color}1F`,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                        marginTop: 1,
+                      }}
+                    >
+                      <Icon size={13} color={a.color} strokeWidth={2} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: COLORS.paper }}>{a.name}</div>
+                      <div style={{ fontSize: 11, color: COLORS.muted, lineHeight: 1.3 }}>{a.desc}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
