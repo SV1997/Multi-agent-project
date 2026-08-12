@@ -11,6 +11,33 @@ export default function GlobalStyles() {
       .sb-input::placeholder { color: #4A5468; }
       .sb-input:focus { outline: none; }
 
+      .sb-bubble { overflow-wrap: anywhere; word-break: break-word; }
+      .sb-bubble > *:first-child { margin-top: 0; }
+      .sb-bubble > *:last-child { margin-bottom: 0; }
+      .sb-bubble img { max-width: 100%; height: auto; }
+      .sb-bubble pre {
+        max-width: 100%;
+        overflow-x: auto;
+        white-space: pre;
+        box-sizing: border-box;
+      }
+      .sb-bubble code {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        white-space: pre-wrap;
+      }
+      .sb-bubble pre code {
+        white-space: pre;
+        word-break: normal;
+        overflow-wrap: normal;
+      }
+      .sb-bubble table {
+        display: block;
+        max-width: 100%;
+        overflow-x: auto;
+        border-collapse: collapse;
+      }
+
       .sb-mobile-bar { display: none; }
       .sb-mobile-toggle { display: none; background: none; border: none; cursor: pointer; padding: 4px; }
       .sb-backdrop { display: none; }
@@ -58,7 +85,7 @@ export default function GlobalStyles() {
 
         .sb-msglist {
           min-height: 0 !important;
-          padding-bottom: 96px !important;
+          padding-bottom: 190px !important;
         }
 
         .sb-composer {

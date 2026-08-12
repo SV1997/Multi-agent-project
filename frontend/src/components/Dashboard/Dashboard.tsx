@@ -306,7 +306,7 @@ export default function Dashboard() {
           <Menu size={18} color={COLORS.paper} />
         </button>
         <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 14 }}>
-          SWITCHBOARD
+          MULTI-AGENT-SYSTEM
         </div>
         {activeSessionId ? (
           <button
