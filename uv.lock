@@ -13,7 +13,7 @@ members = [
     "ingestion-service",
     "orchestrator",
     "project",
-    "retrieval-service",
+    "retriever-service",
 ]
 
 [[package]]
@@ -404,13 +404,23 @@ version = "0.1.0"
 source = { virtual = "services/evaluation_service" }
 dependencies = [
     { name = "datasets" },
+    { name = "fastapi" },
+    { name = "nest-asyncio" },
+    { name = "pandas" },
+    { name = "python-dotenv" },
     { name = "ragas" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "datasets", specifier = ">=5.0.1" },
+    { name = "datasets", specifier = ">=4.4.0" },
+    { name = "fastapi", specifier = ">=0.139.0" },
+    { name = "nest-asyncio", specifier = ">=1.6.0" },
+    { name = "pandas", specifier = ">=2.3.3" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "ragas", specifier = ">=0.3.0,<0.3.4" },
+    { name = "uvicorn", specifier = ">=0.50.0" },
 ]
 
 [[package]]
@@ -2085,7 +2095,7 @@ wheels = [
 ]
 
 [[package]]
-name = "retrieval-service"
+name = "retriever-service"
 version = "0.1.0"
 source = { virtual = "services/retrieval-service" }
 dependencies = [
