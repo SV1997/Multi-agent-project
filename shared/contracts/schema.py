@@ -74,14 +74,14 @@ class EvalRequest(BaseModel):
     query: str
     answer: str
     retrieved_context: list[str]
+    confidence: float
     ground_truth: str | None = None
 
 
 class EvalResponse(BaseModel):
     faithfulness: float
     answer_relevancy: float
-    context_precision: float
-    context_recall: float
+    flagged: bool
 
 # ---- Orchesstrator contratcs -----
 
