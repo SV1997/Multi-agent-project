@@ -17,6 +17,9 @@ const ApiObj = {
         QUERY_NOTIFICATIONS: (thread_id: string) => `/query/notifications/${thread_id}`,
         QUERY_MY_PENDING_REVIEWS: '/query/my-pending-reviews',
     },
+    evaluate:{
+        EVALUATE: (threadId: string) => `/evaluate/${threadId}`,
+    },
     session:{
         SESSION_CREATE: '/session/create',
         SESSION_LIST: '/session/list',
