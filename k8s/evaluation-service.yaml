@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evaluation-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: evaluation-service
+  template:
+    metadata:
+      labels:
+        app: evaluation-service
+    spec:
+      imagePullSecrets:
+        - name: ecr-secret
+      containers:
+        - name: evaluation-service
+          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/evaluation-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8004
+          envFrom:
+            - secretRef:
+                name: evaluation-service-env
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evaluation-service
+spec:
+  selector:
+    app: evaluation-service
+  ports:
+    - port: 8004
+      targetPort: 8004
