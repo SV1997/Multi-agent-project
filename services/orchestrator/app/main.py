@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
+from psycopg_pool import AsyncConnectionPool
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from .core.config import CHECKPOINTER_DB_URL
 from .graph.supervisor import set_supervisor_agent
@@ -10,8 +11,28 @@ from .api.routes import router
 
 @asynccontextmanager
 async def lifespan(asp: FastAPI):
-    async with AsyncPostgresSaver.from_conn_string(CHECKPOINTER_DB_URL) as checkpointer:
-        app_state["supervisor"]= set_supervisor_agent(checkpointer)
+    async with AsyncConnectionPool(
+        conninfo=CHECKPOINTER_DB_URL,
+        min_size=1,
+        max_size=10,
+        max_idle=60,
+        kwargs={
+            "autocommit": True,
+            "prepare_threshold": 0,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 3,
+        },
+        # Neon's pooler silently drops idle backend connections; re-verify
+        # each connection before handing it out instead of trusting a
+        # possibly-dead socket.
+        check=AsyncConnectionPool.check_connection,
+        open=False,
+    ) as pool:
+        await pool.open(wait=True)
+        checkpointer = AsyncPostgresSaver(pool)
+        app_state["supervisor"] = set_supervisor_agent(checkpointer)
         yield
 
 app=FastAPI(lifespan=lifespan)
