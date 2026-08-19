@@ -156,6 +156,7 @@ export class QueryService {
             turnId:turnId,
             userId: userId,
             sources: reviewPayload.answer.sources.map(s=>JSON.stringify(s)),
+            context: reviewPayload.context,
             answer: reviewPayload.answer.answer,
             confidence: reviewPayload.answer.confidence,
             resolved: false
@@ -166,6 +167,7 @@ export class QueryService {
             turnId:turnId,
             userId: userId,
             sources: reviewPayload.answer.sources.map(s=>JSON.stringify(s)),
+            context: reviewPayload.context,
             answer: reviewPayload.answer.answer,
             confidence: reviewPayload.answer.confidence,
             resolved: false,
