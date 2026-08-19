@@ -1,7 +1,7 @@
 import axios from 'axios'
 import config from './config'
 
-const API_TIMEOUT = 18000;
+const API_TIMEOUT = 20000;
 
 const authRoutes = [
     config.ingestion.INGESTION,
@@ -41,7 +41,9 @@ api.interceptors.request.use(
         try {
             const requestUrl = requestConfig.url?.split("?")[0] || ""
             const isTokenRequired = authRoutes.some((route) => requestUrl === route || requestUrl.startsWith(`${route}/`))
-            requestConfig.timeout = API_TIMEOUT
+            // Keep endpoint-specific timeouts (e.g. long-running evaluation)
+            // instead of replacing them with the normal API timeout.
+            requestConfig.timeout ??= API_TIMEOUT
             if (isTokenRequired && accessToken) {
                 requestConfig.headers.Authorization = `Bearer ${accessToken}`
             }
@@ -135,11 +137,12 @@ export const fetchRequestGet = async (url: string) => {
     }
 }
 
-export const fetchRequestPost = async (url: string, body = {}) => {
+export const fetchRequestPost = async (url: string, body = {}, timeout = API_TIMEOUT) => {
     try {
         const response = await api.post(baseUrl + url, body, {
             headers: { "Content-Type": "application/json" },
-            withCredentials: true
+            withCredentials: true,
+            timeout,
         })
         return response
     } catch (error) {
