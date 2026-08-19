@@ -1,6 +1,6 @@
 volumes:
   seaweed_data:
-  # postgres_data:
+  postgres_data:
 
 services:
   retrieval-service:
@@ -28,8 +28,8 @@ services:
       - ./services/orchestrator/.env
     ports:
       - "8003:8003"
-    # depends_on:
-    #   - postgres
+    depends_on:
+      - postgres
   
   seaweedfs:
     image: chrislusf/seaweedfs
@@ -50,32 +50,32 @@ services:
       - orchestrator
       - seaweedfs
     restart: always
-  # frontend:
-  #   build: 
-  #     context: ./frontend
-  #     args:
-  #       VITE_BASE_URL: http://localhost:3000
-        
-  #   ports:
-  #     - "80:80"
   frontend:
     build: 
       context: ./frontend
       args:
-        VITE_BASE_URL: https://multiagentragsystem.duckdns.org/api
+        VITE_BASE_URL: http://localhost:3000
+        
     ports:
       - "80:80"
-      - "443:443"
-    volumes:
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-  # postgres:
-  #   image: postgres:16
-  #   environment:
-  #     POSTGRES_USER: ${POSTGRES_USER:-postgres}
-  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-  #     POSTGRES_DB: ${POSTGRES_DB:-gateway_db}
+  # frontend:
+  #   build: 
+  #     context: ./frontend
+  #     args:
+  #       VITE_BASE_URL: https://multiagentragsystem.duckdns.org/api
   #   ports:
-  #     - "55432:5432"
+  #     - "80:80"
+  #     - "443:443"
   #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #     - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql 
+  #     - /etc/letsencrypt:/etc/letsencrypt:ro
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-gateway_db}
+    ports:
+      - "55432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql 
