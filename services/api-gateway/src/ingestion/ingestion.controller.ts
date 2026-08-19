@@ -15,7 +15,7 @@ export class IngestionController {
 
     constructor(private readonly ingestionService:IngestionService
     ){}
-
+    
     @UseGuards(AuthguardGuard)
     @Post()
     ingestion(@Body() ingestionDto:IngestionDto, @Req() req:AuthenticatedRequest){
