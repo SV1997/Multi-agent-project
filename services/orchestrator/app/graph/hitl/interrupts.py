@@ -6,7 +6,8 @@ def human_review_gate(state:AgentState)->dict:
         feedback = interrupt({
             "message":"This answer need human review to finalise",
             "domain":state.get("domain"),
-            "answer": state.get("final_answer")
+            "answer": state.get("final_answer"),
+            "context": state.get("retrieved_context")
         })
 
         final_answer = state.get("final_answer") or {}
