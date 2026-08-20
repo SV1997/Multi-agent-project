@@ -41,6 +41,7 @@ SERVICE_ROOT = Path(__file__).resolve().parent.parent
 import pandas as pd
 
 def evaluate_single(question: str, answer: str, contexts: list[str], confidence: float) -> dict:
+    print(question,answer, contexts,confidence )
     dataset = Dataset.from_list([{
         "question": question,
         "answer": answer,
