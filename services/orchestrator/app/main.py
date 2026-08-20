@@ -1,6 +1,13 @@
+import asyncio
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from psycopg_pool import AsyncConnectionPool
+
+def loop_factory() -> asyncio.AbstractEventLoop:
+    # psycopg's async pool can't run on Windows' default ProactorEventLoop.
+    # Irrelevant on Linux (the deployment target) - only needed to run locally
+    # on Windows via: uvicorn app.main:app --loop app.main:loop_factory
+    return asyncio.SelectorEventLoop()
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from .core.config import CHECKPOINTER_DB_URL
 from .graph.supervisor import set_supervisor_agent
