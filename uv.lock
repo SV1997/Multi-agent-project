@@ -13,7 +13,7 @@ members = [
     "ingestion-service",
     "orchestrator",
     "project",
-    "retriever-service",
+    "retrieval-service",
 ]
 
 [[package]]
@@ -2093,7 +2093,7 @@ wheels = [
 ]
 
 [[package]]
-name = "retriever-service"
+name = "retrieval-service"
 version = "0.1.0"
 source = { virtual = "services/retrieval-service" }
 dependencies = [
