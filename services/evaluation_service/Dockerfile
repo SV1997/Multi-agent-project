@@ -2,6 +2,7 @@ FROM python:3.14-slim
 
 WORKDIR /app
 
+ENV GIT_PYTHON_REFRESH=quiet
 COPY pyproject.toml uv.lock ./
 COPY shared ./shared
 COPY services/evaluation_service ./services/evaluation_service
