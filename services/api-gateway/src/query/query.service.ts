@@ -146,6 +146,7 @@ export class QueryService {
     }
 
     async forwardQueryStreamPrismaInitiate(threadId:string,reviewPayload:any,userId: number, domain:string, sessionId: string, turnId:string){
+     
       try {
         const review = await this.prismaService.pendingReview.upsert({
           where:{threadId},
@@ -155,7 +156,8 @@ export class QueryService {
             domain: domain,
             turnId:turnId,
             userId: userId,
-            sources: reviewPayload.answer.sources.map(s=>JSON.stringify(s)),
+            sources: reviewPayload.answer.sources.map((s:any)=>JSON.stringify(s)),
+            context: reviewPayload.context.map((c:any)=>JSON.stringify(c)),
             answer: reviewPayload.answer.answer,
             confidence: reviewPayload.answer.confidence,
             resolved: false
@@ -166,6 +168,7 @@ export class QueryService {
             turnId:turnId,
             userId: userId,
             sources: reviewPayload.answer.sources.map(s=>JSON.stringify(s)),
+            context: reviewPayload.context.map(c=>JSON.stringify(c)),
             answer: reviewPayload.answer.answer,
             confidence: reviewPayload.answer.confidence,
             resolved: false,
