@@ -5,7 +5,8 @@ from langchain.messages import HumanMessage, SystemMessage, AIMessage
 from .nodes import retrieve_context, build_context_prompt
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
+from langchain_core.callbacks import adispatch_custom_event
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../.."))
 from shared.contracts.schema import AgentAnswer, AgentAnswerLLM
 
 def route_after_reason(state:AgentState)-> str:
@@ -55,9 +56,13 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
             return await _finalize_answer(answer, messages, domain_name, sources, remaining)
 
         res = await llm_with_tools.ainvoke(messages)
-
         if res.tool_calls:
+            tool_names = [tc["name"] for tc in res.tool_calls]
+            await adispatch_custom_event("tool_call", {"tool_call": tool_names})
             return {"messages":[res], "tool_calls_remaining":remaining-1}
+
+            
+
 
         answer_response = await plain_llm.ainvoke(messages)
 

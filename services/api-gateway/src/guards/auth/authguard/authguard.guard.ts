@@ -9,12 +9,13 @@ export class AuthguardGuard implements CanActivate {
     context: ExecutionContext,
   ): boolean | Promise<boolean> | Observable<boolean> {
     const request = context.switchToHttp().getRequest();
+    const queryToken = request.query.token
     const header = request.headers["authorization"]
-    if (!header) {
+    if (!header && !queryToken) {
       throw new UnauthorizedException('No token available')
     }
     try {
-      const token = header.split(" ")[1];
+      const token = header?header.split(" ")[1]:queryToken;
       console.log(token)
       const payload = this.jwtService.verify(token);
       console.log(payload);

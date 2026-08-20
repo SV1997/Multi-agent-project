@@ -1,7 +1,7 @@
 import { Type } from "class-transformer";
 import { IsString, IsBoolean ,ValidateNested } from "class-validator";
 
-class humanRsponse{
+class humanResponse{
     @IsString()
     revised_answer!: string
     
@@ -17,6 +17,6 @@ export class ResumeDto{
     threadId!: string;
 
     @ValidateNested()
-    @Type(()=>humanRsponse)
-    human_response!: humanRsponse
+    @Type(()=>humanResponse)
+    human_response!: humanResponse
 }

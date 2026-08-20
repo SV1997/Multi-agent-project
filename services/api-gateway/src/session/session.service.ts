@@ -58,4 +58,16 @@ export class SessionService {
 
     }
 
+async updateUserMessage(response:string, turnId:string, sessionId:string){
+        const res = await this.prismaService.message.update({
+            where:{sessionId_role_turnId:{turnId:turnId, sessionId:sessionId, role:MessageRole.ASSISTANT}},
+            data:{
+                content:response,
+            }
+        })
+        return res
+
+    }
+
+
 }

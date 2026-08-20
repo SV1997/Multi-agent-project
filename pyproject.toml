@@ -17,9 +17,6 @@ dependencies = [
 members = [
     "services/retrieval-service",
     "services/orchestrator",
-    "services/ingestion-service",
-    "services/evaluation-service",
-    "services/retriever-service",
     "services/ingestion_service",
     "services/evaluation_service",
 ]
