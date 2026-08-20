@@ -14,4 +14,4 @@ ENV PYTHONPATH=/app
 
 EXPOSE 8001
 
-CMD ["uv","run","--project","/app","uvicorn","app.main:app","--port", "8001"]
+CMD ["uv","run","--project","/app","uvicorn","app.main:app","--host", "0.0.0.0","--port", "8001"]
