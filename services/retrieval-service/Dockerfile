@@ -6,7 +6,7 @@ COPY pyproject.toml uv.lock ./
 COPY shared ./shared
 COPY services/retrieval-service ./services/retrieval-service
 
-RUN pip install uv && uv sync --frozen --package retriever-service
+RUN pip install uv && uv sync --frozen --package retrieval-service
 
 WORKDIR /app/services/retrieval-service
 
