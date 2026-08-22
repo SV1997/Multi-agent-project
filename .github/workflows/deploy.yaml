@@ -1,0 +1,73 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [develop]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Build, tag, and push retrieval-service
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $REGISTRY/retrieval-service:latest -f services/retrieval-service/Dockerfile .
+          docker push $REGISTRY/retrieval-service:latest
+
+      - name: Build, tag, and push ingestion-service
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $REGISTRY/ingestion-service:latest -f services/ingestion_service/Dockerfile .
+          docker push $REGISTRY/ingestion-service:latest
+
+      - name: Build, tag, and push orchestrator
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $REGISTRY/orchestrator:latest -f services/orchestrator/Dockerfile .
+          docker push $REGISTRY/orchestrator:latest
+
+      - name: Build, tag, and push evaluation-service
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $REGISTRY/evaluation-service:latest -f services/evaluation_service/Dockerfile .
+          docker push $REGISTRY/evaluation-service:latest
+
+      - name: Build, tag, and push api-gateway
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $REGISTRY/api-gateway:latest services/api-gateway
+          docker push $REGISTRY/api-gateway:latest
+
+      - name: Build, tag, and push frontend
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $REGISTRY/frontend:latest \
+            --build-arg VITE_BASE_URL=https://multiagentragsystem.online \
+            ./frontend
+          docker push $REGISTRY/frontend:latest
+
+      
