@@ -62,7 +62,7 @@ jobs:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           docker build -t $REGISTRY/frontend:latest \
-            --build-arg VITE_BASE_URL=https://multiagentragsystem.online \
+            --build-arg VITE_BASE_URL=https://multiagentragsystem.online/api \
             ./frontend
           docker push $REGISTRY/frontend:latest
 
