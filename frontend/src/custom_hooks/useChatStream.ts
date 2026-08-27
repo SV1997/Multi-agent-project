@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import ApiObj from '../common/ApiObj';
+import { boolean } from 'zod';
 
 interface StreamState {
   currentStage: string | null;
@@ -7,6 +8,7 @@ interface StreamState {
   answerText: string;
   isStreaming: boolean;
   pausedReview: any | null;
+  error: boolean;
 }
 
 export function useChatStream() {
@@ -16,10 +18,11 @@ export function useChatStream() {
     answerText: '',
     isStreaming: false,
     pausedReview: null,
+    error: false
   });
 
   const sendQuery = useCallback(async (query: string, sessionId: string, turnId: string) => {
-    setState({ currentStage: null, toolCalls: [], answerText: '', isStreaming: true, pausedReview: null });
+    setState({ currentStage: null, toolCalls: [], answerText: '', isStreaming: true, pausedReview: null, error: false });
 
     const response = await fetch(import.meta.env.VITE_BASE_URL + ApiObj.query.QUERY_STREAM, {
       method: 'POST',
@@ -57,6 +60,11 @@ export function useChatStream() {
       }
       console.log(parsed);
       
+      if(parsed.type === 'error'){
+        setState((prev)=>({...prev, error: true, answerText: parsed.message}))
+        return;
+      }
+
       if (parsed.node_name) {
         setState((prev) => ({ ...prev, currentStage: parsed.node_name }));
         return;
