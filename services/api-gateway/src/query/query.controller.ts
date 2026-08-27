@@ -74,12 +74,16 @@ export class QueryController {
                             answerBuffer+=parsed.token!==undefined?parsed.token:""
 
                             // console.log(parsed );
-
+                            if(parsed.type=== "error"){
+                                res.write(`data:${dataStr}\n\n`)
+                                continue
+                            }
                             if (parsed.status === 'paused_for_review') {
                                 await this.queryService.forwardQueryStreamPrismaInitiate(parsed.thread_id,parsed.review_payload,req.user.sub, req.user.role, queryDto.sessionId, turnId)
                                 res.write(`data:${JSON.stringify({...parsed, turnId, sessionId: queryDto.sessionId})}\n\n`);
 
                             }
+                            
                             else{
                                 res.write(`data:${dataStr}\n\n`)
                             }
