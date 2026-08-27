@@ -31,38 +31,39 @@ async def event_generator(req:OrchestratorRequest):
     }
     steps_list = ["classify_domain","check_authorization","legal_agent","hr_agent","support_agent","coding_agent","engineering_agent", "retrieve",]
     seen_stages = set()
-    
-    async for event in supervisor.astream_events(initial_state, version="v2", config=config, subgraphs=True):
-        # print(event['event'])
-        if event["event"] == "on_chain_start":
-            node_name = event.get("name")
-            if node_name in steps_list and node_name not in seen_stages:
-                seen_stages.add(node_name)
-                yield f"data:{json.dumps({'node_name': node_name})}\n\n"
+    try:
+        async for event in supervisor.astream_events(initial_state, version="v2", config=config, subgraphs=True):
+            # print(event['event'])
+            if event["event"] == "on_chain_start":
+                node_name = event.get("name")
+                if node_name in steps_list and node_name not in seen_stages:
+                    seen_stages.add(node_name)
+                    yield f"data:{json.dumps({'node_name': node_name})}\n\n"
 
-        if event["event"] == "on_custom_event":   # verify this exact name for your version
-            custom_data = event.get("data", {})
-            print(custom_data)
-            if "tool_call" in custom_data:
-                yield f"data:{json.dumps({'tool_call': custom_data['tool_call']})}\n\n"
+            if event["event"] == "on_custom_event":   # verify this exact name for your version
+                custom_data = event.get("data", {})
+                print(custom_data)
+                if "tool_call" in custom_data:
+                    yield f"data:{json.dumps({'tool_call': custom_data['tool_call']})}\n\n"
 
-        if event["event"] == "on_chat_model_stream":
-            tags = event.get("tags", [])
-            if "final-answer" in tags:
-                chunk = event["data"]["chunk"]
-                if chunk.content:
-                    yield f"data:{json.dumps({'token': chunk.content})}\n\n"
-        
-    state_snapshot = await supervisor.aget_state(config)
-    if state_snapshot.interrupts:
-        interrupt_data = state_snapshot.interrupts[0].value
-        yield f"data:{json.dumps({'status':'paused_for_review', 'review_payload':interrupt_data, 'thread_id':thread_id})}\n\n"
-    else:
-        if state_snapshot.values.get("authorization_denied"):
-            denial_text = state_snapshot.values["messages"][-1].content
-            yield f"data:{json.dumps({'token': denial_text})}\n\n"
-        yield "data:[DONE]\n\n"
-
+            if event["event"] == "on_chat_model_stream":
+                tags = event.get("tags", [])
+                if "final-answer" in tags:
+                    chunk = event["data"]["chunk"]
+                    if chunk.content:
+                        yield f"data:{json.dumps({'token': chunk.content})}\n\n"
+        state_snapshot = await supervisor.aget_state(config)
+        if state_snapshot.interrupts:
+            interrupt_data = state_snapshot.interrupts[0].value
+            yield f"data:{json.dumps({'status':'paused_for_review', 'review_payload':interrupt_data, 'thread_id':thread_id})}\n\n"
+        else:
+            if state_snapshot.values.get("authorization_denied"):
+                denial_text = state_snapshot.values["messages"][-1].content
+                yield f"data:{json.dumps({'token': denial_text})}\n\n"
+            yield "data:[DONE]\n\n"
+    except Exception as e:
+        print(f"Orchestrator stream failed: {e}")  # goes to kubectl logs, for your own debugging
+        yield f"data:{json.dumps({'type': 'error', 'message': 'Something went wrong. Please try again shortly.'})}\n\n"
 async def event_generator_resume(req:RequestResume):
     config = {"configurable":{"thread_id": req.thread_id}}
     supervisor = app_state[SUPERVISOR_KEY]

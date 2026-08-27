@@ -26,7 +26,7 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
     tool = tools or []
     graph = StateGraph(AgentState)
     graph.add_node("retrieve", retrieve_context)
-    structured_llm = llm.with_structured_output(AgentAnswerLLM, method="json_schema", strict=True).with_config(tags=["metadata-only"])
+    structured_llm = llm.with_structured_output(AgentAnswerLLM, method="function_calling", strict=True).with_config(tags=["metadata-only"])
     llm_with_tools = (llm.bind_tools(tools) if tool else llm).with_config(tags=["tool-decision"])
     plain_llm = llm.with_config(tags=["final-answer"])
 
