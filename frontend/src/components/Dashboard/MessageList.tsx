@@ -74,7 +74,7 @@ const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function Messag
                   className="sb-bubble"
                   style={{
                     background: COLORS.panel,
-                    border: `1px solid ${COLORS.hairline}`,
+                    border: `1px solid ${m.error ? `${COLORS.error}66` : COLORS.hairline}`,
                     borderRadius: "3px 12px 12px 12px",
                     padding: "12px 14px",
                     fontSize: 14,
@@ -83,6 +83,8 @@ const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function Messag
                     maxWidth: "100%",
                     overflowWrap: "anywhere",
                     wordBreak: "break-word",
+                    color: m.error ? COLORS.error : undefined,
+                    fontStyle: m.error ? "italic" : undefined,
                   }}
                 >
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
