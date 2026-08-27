@@ -19,7 +19,7 @@ def set_supervisor_agent(checkpointer):
     class DomainClassification(BaseModel):
         domain: Literal["legal","hr","engineering","coding","support"] = Field(description="It provide routing detail for the tool base on the literal")
 
-    classifier_llm = init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0, streaming=False, reasoning_effort="low").with_structured_output(DomainClassification, method="json_schema", strict=True).with_config(tags=["classification-only"])
+    classifier_llm = init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0, streaming=False, reasoning_effort="low").with_structured_output(DomainClassification, method="function_calling", strict=True).with_config(tags=["classification-only"])
 
     CLASSIFIER_HISTORY_WINDOW = 6
 
