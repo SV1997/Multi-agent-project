@@ -1,7 +1,5 @@
 import { useState, useCallback } from 'react';
 import ApiObj from '../common/ApiObj';
-import { boolean } from 'zod';
-
 interface StreamState {
   currentStage: string | null;
   toolCalls: string[];
