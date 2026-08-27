@@ -200,11 +200,13 @@ export default function Dashboard() {
     if (state.answerText && currentAssisstantIdRef.current) {
       setMessages((prev) => {
         return prev.map((m) => {
-          return m.id === currentAssisstantIdRef.current ? { ...m, content: state.answerText, agent: activeAgent ?? undefined } : m;
+          return m.id === currentAssisstantIdRef.current
+            ? { ...m, content: state.answerText, agent: activeAgent ?? undefined, error: state.error }
+            : m;
         });
       });
     }
-  }, [state.answerText]);
+  }, [state.answerText, state.error]);
 
   useEffect(() => {
     if (!state.isStreaming && !state.pausedReview && currentAssisstantIdRef.current) {
