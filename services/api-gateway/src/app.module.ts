@@ -9,13 +9,12 @@ import { IngestionModule } from './ingestion/ingestion.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { SessionModule } from './session/session.module';
 import { StorageModule } from './storage/storage.module';
-import { EvaluateModule } from './evaluate/evaluate.module';
 @Module({
   imports:[EventEmitterModule.forRoot(),PrismaModule, AuthModule, ConfigModule.forRoot(
     {
       isGlobal: true
     }
-  ), QueryModule, IngestionModule, SessionModule, StorageModule, EvaluateModule],
+  ), QueryModule, IngestionModule, SessionModule, StorageModule],
   controllers: [AppController],
   providers: [AppService],
 })

@@ -22,13 +22,15 @@ export class QueryService {
       private prismaService: PrismaService,
       private eventEmitter:EventEmitter2,
      private sessionService:SessionService){}
-    async forwardQuery(query:string, role:string){
+    async forwardQuery(query:string, role:string, employeeEmail:string){
       
          const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || [];
          const orchestratorUrl = this.configService.get<string>('ORCHESTRATOR_URL')||"";
          const res = await firstValueFrom(this.httpService.post(`${orchestratorUrl}`,{
       query: query,
       allowed_namespace: allowedNamespaces,
+      employeeEmail: employeeEmail
+
     },
     {
       headers: {
@@ -86,7 +88,7 @@ export class QueryService {
       console.log(updatePending, updateMessage)
     }
 
-    async forwardQueryStream(query:string, role:string, sessionId:string){
+    async forwardQueryStream(query:string, role:string, sessionId:string, employeeEmail:string){
       const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || [];
 
       const session = await this.prismaService.session.findUnique({
@@ -100,7 +102,8 @@ export class QueryService {
          const res = await firstValueFrom(this.httpService.post(`${orchestratorUrl}/stream`,{
       query: query,
       allowed_namespace: allowedNamespaces,
-      thread_id:threadId
+      thread_id:threadId,
+      employeeEmail:employeeEmail
     },
     {
       headers: {
@@ -146,7 +149,6 @@ export class QueryService {
     }
 
     async forwardQueryStreamPrismaInitiate(threadId:string,reviewPayload:any,userId: number, domain:string, sessionId: string, turnId:string){
-     
       try {
         const review = await this.prismaService.pendingReview.upsert({
           where:{threadId},
@@ -156,8 +158,7 @@ export class QueryService {
             domain: domain,
             turnId:turnId,
             userId: userId,
-            sources: reviewPayload.answer.sources.map((s:any)=>JSON.stringify(s)),
-            context: reviewPayload.context.map((c:any)=>JSON.stringify(c)),
+            sources: reviewPayload.answer.sources.map(s=>JSON.stringify(s)),
             answer: reviewPayload.answer.answer,
             confidence: reviewPayload.answer.confidence,
             resolved: false
@@ -168,7 +169,6 @@ export class QueryService {
             turnId:turnId,
             userId: userId,
             sources: reviewPayload.answer.sources.map(s=>JSON.stringify(s)),
-            context: reviewPayload.context.map(c=>JSON.stringify(c)),
             answer: reviewPayload.answer.answer,
             confidence: reviewPayload.answer.confidence,
             resolved: false,
