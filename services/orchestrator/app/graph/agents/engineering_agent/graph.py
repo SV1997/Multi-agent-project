@@ -9,5 +9,8 @@ engineering_agent = build_domain_agent(
     llm=llm,
     system_prompt=ENGINEERING_AGENT_PROMPT,
     tools= [check_service_status],
-    domain_name="engineering"
+    domain_name="engineering",
+    retrieval_method=["sql", "vector"],
+        sql_function=["deployment_status"]
+
 )

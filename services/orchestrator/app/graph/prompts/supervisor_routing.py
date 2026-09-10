@@ -11,7 +11,8 @@ SUPERVISOR_ROUTE_PROMPT ="""you are a supervisor managing a team of specialists 
            Do NOT use this for questions about internal service/system status -
            those belong to engineering.
         Based on the conversation, decide which agent should act next.
-        If the task is complete, respond with FINISH.
+
+        Always select exactly one of: legal, hr, engineering, coding, support.
 
         Current conversation shows the progress so far.
         """
