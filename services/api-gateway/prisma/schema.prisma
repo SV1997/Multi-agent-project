@@ -40,6 +40,10 @@ model User {
   pendingRevieww PendingReview[]
   session        Session[]
   refreshToken   RefreshToken[]
+  employeeData   EmployeeData[]
+  legalContract  LegalContract[]
+  Deployment     Deployment[]
+  tickets        Tickets[]
 }
 
 model Session {
@@ -116,4 +120,70 @@ model PendingReview {
   createdAt             DateTime  @default(now())
   resolved              Boolean   @default(false)
   resolvedAt            DateTime?
+}
+
+model EmployeeData{
+    id            Int       @id @default(autoincrement())
+    employee_email     String  @unique
+    user          User @relation(fields:[employee_email], references: [Email])
+    leave_balance         Int
+    leave_type        String
+    ctc                Float @default(0.0)
+}
+
+enum Status {
+ pending
+ resolved
+ rejected
+}
+
+
+model Tickets {
+  id              Int      @id @default(autoincrement())
+  ticket_id       String   @unique
+  employee_email  String
+  user            User     @relation(fields: [employee_email], references: [Email])
+  pourpose        String
+  created_At      DateTime @default(now())
+  status          Status   @default(pending)
+  @@map("TICKETS")
+}
+
+enum ContractStatus {
+  active
+  expiring_soon
+  expired
+  under_negotiation
+}
+
+model LegalContract {
+  id              Int            @id @default(autoincrement())
+  contract_number String         @unique
+  counterparty    String
+  managed_by_email String
+  managedBy       User           @relation(fields: [managed_by_email], references: [Email])
+  status          ContractStatus @default(active)
+  expiry_date     DateTime?
+  summary         String?
+  created_At      DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+
+
+enum DeploymentStatus {
+  succeeded
+  failed
+  in_progress
+  rolled_back
+}
+
+model Deployment {
+  id              Int              @id @default(autoincrement())
+  deployment_id   String           @unique
+  service_name    String
+  triggered_by_email String
+  triggeredBy     User             @relation(fields: [triggered_by_email], references: [Email])
+  status          DeploymentStatus
+  deployed_at     DateTime         @default(now())
 }
