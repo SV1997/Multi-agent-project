@@ -10,6 +10,8 @@ legal_agent = build_domain_agent(
     llm=llm,
     system_prompt=LEGAL_SYSTEM_PROMPT,
     tools=[check_compliance_status],
-    domain_name="legal"
+    domain_name="legal",
+    retrieval_method=["sql", "vector"],
+    sql_functions=["contract_tracking"]
 )
 

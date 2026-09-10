@@ -9,6 +9,8 @@ llm = init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0.2, streami
 hr_agent = build_domain_agent(
     llm=llm,
     system_prompt=HR_AGENT_PROMPT,
-    tools= [check_balance_leaves],
-    domain_name="hr"
+    tools= [],
+    domain_name="hr",
+    retrieval_method=["sql", "vector"],
+    sql_function=["leave_balance","CTC_data"]
 )
