@@ -27,10 +27,12 @@ async def event_generator(req:OrchestratorRequest):
         "tool_calls_remaining":3,
         "requires_human_review": False,
         "final_answer": None,
-        "allowed_namespace": req.allowed_namespace
+        "allowed_namespace": req.allowed_namespace,
+        "employee_email":req.employee_email
     }
-    steps_list = ["classify_domain","check_authorization","legal_agent","hr_agent","support_agent","coding_agent","engineering_agent", "retrieve",]
+    steps_list = ["classify_domain","check_authorization","legal_agent","hr_agent","support_agent","coding_agent","engineering_agent", "prepare_retrieval", "retrieve", "grade_retrieval", "rewrite_query", "insufficient_evidence"]
     seen_stages = set()
+    emitted_final_tokens = False
     
     async for event in supervisor.astream_events(initial_state, version="v2", config=config, subgraphs=True):
         # print(event['event'])
@@ -51,6 +53,7 @@ async def event_generator(req:OrchestratorRequest):
             if "final-answer" in tags:
                 chunk = event["data"]["chunk"]
                 if chunk.content:
+                    emitted_final_tokens = True
                     yield f"data:{json.dumps({'token': chunk.content})}\n\n"
         
     state_snapshot = await supervisor.aget_state(config)
@@ -61,6 +64,11 @@ async def event_generator(req:OrchestratorRequest):
         if state_snapshot.values.get("authorization_denied"):
             denial_text = state_snapshot.values["messages"][-1].content
             yield f"data:{json.dumps({'token': denial_text})}\n\n"
+        elif not emitted_final_tokens:
+            final_answer = (state_snapshot.values or {}).get("final_answer") or {}
+            answer_text = final_answer.get("answer")
+            if answer_text:
+                yield f"data:{json.dumps({'token': answer_text})}\n\n"
         yield "data:[DONE]\n\n"
 
 async def event_generator_resume(req:RequestResume):
@@ -99,7 +107,8 @@ async def orchatrator_query(req:OrchestratorRequest):
         "tool_calls_remaining":3,
         "requires_human_review": False,
         "final_answer": None,
-        "allowed_namespace": req.allowed_namespace
+        "allowed_namespace": req.allowed_namespace,
+        "employee_email":req.employee_email
     }, config=config)
     if "__interrupt__" in result:
         print(True if "__interrupt__" in result else None)

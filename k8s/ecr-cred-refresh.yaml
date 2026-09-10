@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ecr-cred-refresh
+spec:
+  schedule: "0 */8 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: ecr-refresh-sa
+          containers:
+            - name: ecr-cred-refresh
+              image: amazon/aws-cli:latest
+              env:
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-creds
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-creds
+                      key: AWS_SECRET_ACCESS_KEY
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  apk add --no-cache curl
+                  curl -LO "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl"
+                  chmod +x kubectl
+                  TOKEN=$(aws ecr get-login-password --region ap-south-1)
+                  ./kubectl delete secret ecr-secret --ignore-not-found
+                  ./kubectl create secret docker-registry ecr-secret \
+                    --docker-server=635668539225.dkr.ecr.ap-south-1.amazonaws.com \
+                    --docker-username=AWS \
+                    --docker-password=$TOKEN
+          restartPolicy: OnFailure

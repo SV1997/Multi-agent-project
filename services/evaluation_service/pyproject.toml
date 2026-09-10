@@ -3,4 +3,12 @@ name = "evaluation-service"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "fastapi>=0.139.0",
+    "uvicorn>=0.50.0",
+    "python-dotenv>=1.2.2",
+    "ragas>=0.3.0,<0.3.4",
+    "datasets>=4.4.0",
+    "pandas>=2.3.3",
+    "nest-asyncio>=1.6.0",
+]

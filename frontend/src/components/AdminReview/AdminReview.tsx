@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { Scale, Users, Cpu, Code2, LifeBuoy, Check, Pencil, Loader2, Inbox } from "lucide-react";
+import { Scale, Users, Cpu, Code2, LifeBuoy, Check, Pencil, Loader2, Inbox, Gauge, AlertTriangle } from "lucide-react";
 import { fetchRequestGet, fetchRequestPost } from "../../common/NetworkOps";
 import ApiObj from "../../common/ApiObj";
 import { showToastError, showToastSuccess } from "../../toastMessage/toast";
@@ -29,6 +29,10 @@ type PendingReviewRow = {
   sources: string[]; // JSON-stringified — parse before rendering
   confidence: number;
   createdAt: string;
+  faithfulnescore?: number | null;
+  answerRelevancyScore?: number | null;
+  evaluatedAt?: string | null;
+  Flagged?: boolean | null;
 };
 
 function ConfidenceBadge({ confidence }: { confidence: number }) {
@@ -48,14 +52,62 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
   );
 }
 
+function ScorePill({ label, value }: { label: string; value: number }) {
+  const pct = Math.round(value * 100);
+  const tone =
+    value < 0.4
+      ? "text-red-400 bg-red-400/10 border-red-400/30"
+      : value < 0.7
+      ? "text-amber-400 bg-amber-400/10 border-amber-400/30"
+      : "text-emerald-400 bg-emerald-400/10 border-emerald-400/30";
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] ${tone}`}>
+      {label} {pct}%
+    </span>
+  );
+}
+
 function ReviewCard({ review,setReviews }: { review: PendingReviewRow, setReviews:Dispatch<SetStateAction<PendingReviewRow[]>> }) {
   const agent = AGENTS[review.domain] ?? AGENTS.support_agent;
   const Icon = agent.icon;
 
   const [draft, setDraft] = useState(review.answer);
   const [submitting, setSubmitting] = useState(false);
+  const [evaluating, setEvaluating] = useState(false);
+  const [scores, setScores] = useState({
+    faithfulnescore: review.faithfulnescore ?? null,
+    answerRelevancyScore: review.answerRelevancyScore ?? null,
+    evaluatedAt: review.evaluatedAt ?? null,
+    Flagged: review.Flagged ?? null,
+  });
 
   const isEdited = draft.trim() !== review.answer.trim();
+
+  const handleEvaluate = async () => {
+    setEvaluating(true);
+    try {
+      // RAGAS evaluation can take substantially longer than ordinary API calls.
+      const res: any = await fetchRequestPost(
+        ApiObj.evaluate.EVALUATE(review.threadId),
+        {},
+        5 * 60 * 1000,
+      );
+      if (res.data) {
+        setScores({
+          faithfulnescore: res.data.faithfulnescore,
+          answerRelevancyScore: res.data.answerRelevancyScore,
+          evaluatedAt: res.data.evaluatedAt,
+          Flagged: res.data.Flagged,
+        });
+        showToastSuccess("evaluation complete");
+      }
+    } catch {
+      showToastError("error running evaluation");
+    } finally {
+      setEvaluating(false);
+    }
+  };
 
   const parsedSources: any[] = (review.sources ?? []).map((s) => {
     try {
@@ -145,28 +197,70 @@ function ReviewCard({ review,setReviews }: { review: PendingReviewRow, setReview
         </div>
       )}
 
+      {/* Evaluation scores */}
+      {(scores.faithfulnescore != null || scores.answerRelevancyScore != null) && (
+        <div className="mb-4">
+          <label className="mb-1.5 block font-mono text-[10px] tracking-wide text-[#4A5468]">
+            EVALUATION SCORE
+          </label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {scores.faithfulnescore != null && (
+              <ScorePill label="Faithfulness" value={scores.faithfulnescore} />
+            )}
+            {scores.answerRelevancyScore != null && (
+              <ScorePill label="Relevancy" value={scores.answerRelevancyScore} />
+            )}
+            {scores.Flagged && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-red-400/30 bg-red-400/10 px-2.5 py-1 font-mono text-[11px] text-red-400">
+                <AlertTriangle size={11} />
+                Flagged
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex items-center justify-between border-t border-[#263047] pt-3.5">
         <span className="font-mono text-[10.5px] text-[#4A5468]">
           {new Date(review.createdAt).toLocaleString()}
         </span>
-        <button
-          onClick={handleApprove}
-          disabled={submitting}
-          className="flex items-center gap-2 rounded-lg bg-[#F2A93C] px-4 py-2 text-[13px] font-medium text-[#0B0F17] transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {submitting ? (
-            <>
-              <Loader2 size={14} className="animate-spin" />
-              Approving…
-            </>
-          ) : (
-            <>
-              <Check size={14} />
-              Approve
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleEvaluate}
+            disabled={evaluating}
+            className="flex items-center gap-2 rounded-lg border border-[#263047] bg-[#1B2433] px-4 py-2 text-[13px] font-medium text-[#E7E9EE] transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {evaluating ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Evaluating…
+              </>
+            ) : (
+              <>
+                <Gauge size={14} />
+                Evaluate
+              </>
+            )}
+          </button>
+          <button
+            onClick={handleApprove}
+            disabled={submitting}
+            className="flex items-center gap-2 rounded-lg bg-[#F2A93C] px-4 py-2 text-[13px] font-medium text-[#0B0F17] transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submitting ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Approving…
+              </>
+            ) : (
+              <>
+                <Check size={14} />
+                Approve
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

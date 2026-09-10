@@ -55,6 +55,7 @@ class AgentAnswer(BaseModel):
     answer: str
     sources: list[str]
     confidence: float
+    context: list[str]
     requires_human_review: bool = False
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -74,14 +75,14 @@ class EvalRequest(BaseModel):
     query: str
     answer: str
     retrieved_context: list[str]
+    confidence: float
     ground_truth: str | None = None
 
 
 class EvalResponse(BaseModel):
     faithfulness: float
     answer_relevancy: float
-    context_precision: float
-    context_recall: float
+    flagged: bool
 
 # ---- Orchesstrator contratcs -----
 

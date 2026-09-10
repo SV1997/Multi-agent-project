@@ -74,13 +74,17 @@ export class QueryController {
                             const parsed = JSON.parse(dataStr);
                             answerBuffer+=parsed.token!==undefined?parsed.token:""
 
-                            console.log(parsed );
-
+                            // console.log(parsed );
+                            if(parsed.type=== "error"){
+                                res.write(`data:${dataStr}\n\n`)
+                                continue
+                            }
                             if (parsed.status === 'paused_for_review') {
                                 await this.queryService.forwardQueryStreamPrismaInitiate(parsed.thread_id,parsed.review_payload,req.user.sub, req.user.role, queryDto.sessionId, turnId)
                                 res.write(`data:${JSON.stringify({...parsed, turnId, sessionId: queryDto.sessionId})}\n\n`);
 
                             }
+                            
                             else{
                                 res.write(`data:${dataStr}\n\n`)
                             }
@@ -159,7 +163,7 @@ async resolveReviewEndpoint(@Body() resumeDto: ResumeDto) {
         }
 
         const listener = (result:any)=>{
-            console.log(result,"161");
+            // console.log(result,"161");
             
             res.write(`data:${JSON.stringify({status:'resolved', result})}\n\n`);
             res.end();

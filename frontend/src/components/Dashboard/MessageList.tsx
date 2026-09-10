@@ -14,7 +14,7 @@ const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function Messag
   scrollRef
 ) {
   return (
-    <div ref={scrollRef} className="sb-scroll" style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
+    <div ref={scrollRef} className="sb-scroll sb-msglist" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", minHeight: 0 }}>
       {loadingMessages && (
         <div style={{ textAlign: "center", color: COLORS.muted, fontSize: 13, paddingTop: 40 }}>
           Loading session…
@@ -45,7 +45,7 @@ const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function Messag
         {messages.map((m) => (
           <div key={m.id} className="sb-msg" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {m.role === "user" ? (
-              <div style={{ alignSelf: "flex-end", maxWidth: "78%" }}>
+              <div style={{ alignSelf: "flex-end", maxWidth: "78%", minWidth: 0 }}>
                 <div
                   style={{
                     background: COLORS.raised,
@@ -54,13 +54,16 @@ const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function Messag
                     padding: "10px 14px",
                     fontSize: 14,
                     lineHeight: 1.5,
+                    overflowWrap: "anywhere",
+                    wordBreak: "break-word",
+                    whiteSpace: "pre-wrap",
                   }}
                 >
                   {m.content}
                 </div>
               </div>
             ) : (
-              <div style={{ alignSelf: "flex-start", maxWidth: "82%" }}>
+              <div style={{ alignSelf: "flex-start", maxWidth: "82%", minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
                   <span style={{ width: 6, height: 6, borderRadius: 999, background: m.agent?.color }} />
                   <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: m.agent?.color, letterSpacing: 0.4 }}>
@@ -68,13 +71,20 @@ const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function Messag
                   </span>
                 </div>
                 <div
+                  className="sb-bubble"
                   style={{
                     background: COLORS.panel,
-                    border: `1px solid ${COLORS.hairline}`,
+                    border: `1px solid ${m.error ? `${COLORS.error}66` : COLORS.hairline}`,
                     borderRadius: "3px 12px 12px 12px",
                     padding: "12px 14px",
                     fontSize: 14,
                     lineHeight: 1.6,
+                    minWidth: 0,
+                    maxWidth: "100%",
+                    overflowWrap: "anywhere",
+                    wordBreak: "break-word",
+                    color: m.error ? COLORS.error : undefined,
+                    fontStyle: m.error ? "italic" : undefined,
                   }}
                 >
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>

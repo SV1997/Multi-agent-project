@@ -1,0 +1,21 @@
+[
+  {"id": 1, "namespace": "legal", "question": "What is the General Data Protection Regulation and when did it come into effect?", "ground_truth": null},
+  {"id": 2, "namespace": "legal", "question": "What rights does GDPR give to individuals regarding their personal data?", "ground_truth": null},
+  {"id": 3, "namespace": "legal", "question": "What are the security obligations for data controllers under GDPR?", "ground_truth": null},
+
+  {"id": 4, "namespace": "hr", "question": "How is the annual increment date determined based on joining month?", "ground_truth": null},
+  {"id": 5, "namespace": "hr", "question": "What is the stagnation increment policy and how often is it granted?", "ground_truth": null},
+  {"id": 6, "namespace": "hr", "question": "Does taking Casual Leave affect an employee's annual increment?", "ground_truth": null},
+
+  {"id": 7, "namespace": "coding", "question": "What is the recommended maximum line length according to PEP 8?", "ground_truth": null},
+  {"id": 8, "namespace": "coding", "question": "According to PEP 8, how should I name a class versus a function?", "ground_truth": null},
+  {"id": 9, "namespace": "coding", "question": "What does PEP 8 say about comparing boolean values to True or False?", "ground_truth": null},
+
+  {"id": 10, "namespace": "engineering", "question": "What are Docker's best practices for choosing a base image?", "ground_truth": null},
+  {"id": 11, "namespace": "engineering", "question": "Why should I avoid installing unnecessary packages in a Docker image?", "ground_truth": null},
+  {"id": 12, "namespace": "engineering", "question": "What is the benefit of decoupling applications into multiple containers?", "ground_truth": null},
+
+  {"id": 13, "namespace": "support", "question": "What are the benefits of offering a customer self-service portal?", "ground_truth": null},
+  {"id": 14, "namespace": "support", "question": "How can automation improve customer support efficiency?", "ground_truth": null},
+  {"id": 15, "namespace": "support", "question": "Why is omnichannel support important for customer service?", "ground_truth": null}
+]

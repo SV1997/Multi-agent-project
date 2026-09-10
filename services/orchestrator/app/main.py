@@ -1,10 +1,19 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from psycopg_pool import AsyncConnectionPool
+# On Windows, run `python -m app.main` from services/orchestrator, or pass
+# `--loop app.main:loop_factory` to uvicorn for psycopg compatibility.
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from .core.config import CHECKPOINTER_DB_URL
 from .graph.supervisor import set_supervisor_agent
+from langgraph.store.postgres import AsyncPostgresStore
+import asyncio
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../.."))
+from shared.embeddings import embeddings
 
+import uvicorn
 app_state = {}
 
 from .api.routes import router
@@ -32,11 +41,28 @@ async def lifespan(asp: FastAPI):
     ) as pool:
         await pool.open(wait=True)
         checkpointer = AsyncPostgresSaver(pool)
-        app_state["supervisor"] = set_supervisor_agent(checkpointer)
-        yield
+        async with AsyncPostgresStore.from_conn_string(
+            CHECKPOINTER_DB_URL,
+            index={"embed":embeddings,"dims":1536}
+        ) as store:
+            await store.setup()
+            app_state["supervisor"] = set_supervisor_agent(checkpointer, store)
+            app_state["memory_store"] = store
+            yield
 
 app=FastAPI(lifespan=lifespan)
 app.include_router(router,prefix="/api/v1")
 @app.get("/health")
 def health():
     return {"status":"ok", "service":"orchastrator-service"}
+
+
+
+def loop_factory(use_subprocess: bool = False) -> asyncio.AbstractEventLoop:
+    # psycopg's async pool can't run on Windows' default ProactorEventLoop.
+    # Pass this factory by import string so uvicorn selects it before startup.
+    return asyncio.SelectorEventLoop()
+
+
+if __name__ == "__main__":
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8003, loop="app.main:loop_factory")

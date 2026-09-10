@@ -10,6 +10,7 @@ export const COLORS = {
   faint: "#4A5468",
   hairline: "#263047",
   signal: "#F2A93C",
+  error: "#F25C54",
 };
 
 export const AGENTS: Agent[] = [

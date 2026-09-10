@@ -28,9 +28,11 @@ function SignUp() {
       console.log(res)
 
       showToastSuccess('Account created successfully')
-      navigate('/login')
+      navigate('/dashboard')
     } catch (err: any) {
-      showToastError(err)
+      console.log(error);
+      
+      showToastError("login failed")
     }
   }
 

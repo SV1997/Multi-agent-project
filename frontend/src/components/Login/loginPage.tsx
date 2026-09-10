@@ -5,7 +5,7 @@ import { useSelector, useDispatch, } from 'react-redux'
 import type { AppDispatch, RootState } from '../../Store/store'
 import './loginPage.css'
 import {loginUser} from "../../Store/auth/authSlice"
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import {showToastSuccess, showToastError} from "../../toastMessage/toast"
 function LoginPage() {
@@ -139,7 +139,7 @@ function LoginPage() {
           </form>
 
           <p className="login-footer">
-            Don't have an account? <a href="#">Contact your admin</a>
+            Don't have an account? <Link to="/signup">Create an account</Link>
           </p>
         </div>
       </section>

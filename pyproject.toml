@@ -11,6 +11,7 @@ dependencies = [
     "langchain-huggingface>=1.2.2",
     "langchain-openai>=1.3.3",
     "langgraph>=1.2.7",
+    "locust>=2.46.4",
     "pydantic>=2.13.4",
 ]
 [tool.uv.workspace]
@@ -19,4 +20,5 @@ members = [
     "services/orchestrator",
     "services/ingestion_service",
     "services/evaluation_service",
+    "locust-test",
 ]

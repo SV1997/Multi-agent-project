@@ -16,6 +16,7 @@ export type Message = {
   status?: "streaming" | "done";
   pendingReview?: boolean;
   turnId?: string;
+  error?: boolean
 };
 
 export type PendingReview = {
