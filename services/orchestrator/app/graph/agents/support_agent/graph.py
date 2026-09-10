@@ -9,5 +9,7 @@ support_agent = build_domain_agent(
     llm=llm,
     system_prompt=SUPPORT_AGENT_PROMPT,
     tools=[check_system_compliance],
-    domain_name="support"
+    domain_name="support",
+    retrieval_method=["sql", "vector"],
+    sql_functions=["get_ticket_status"]
 )

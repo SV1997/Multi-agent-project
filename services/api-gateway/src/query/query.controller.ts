@@ -24,7 +24,7 @@ export class QueryController {
     @UseGuards(AuthguardGuard)
     @Post()
     query(@Body() queryDto:QueryDTO, @Req() req:AuthenticatedRequest){
-        return this.queryService.forwardQuery(queryDto.query, req.user.role)
+        return this.queryService.forwardQuery(queryDto.query, req.user.role, req.user.email)
     }
     @Roles("admin")
     @UseGuards(AuthguardGuard,RoleguardGuard)
@@ -39,7 +39,8 @@ export class QueryController {
         this.queryService.isSessionPending(queryDto.sessionId)
         const turnId=queryDto.turnId
         await this.sessionService.recordUserMessage(MessageRole.USER,queryDto.sessionId,queryDto.query,turnId)
-        const stream = await this.queryService.forwardQueryStream(queryDto.query,req.user.role, queryDto.sessionId)
+        const employeeEmail = req.user.email
+        const stream = await this.queryService.forwardQueryStream(queryDto.query,req.user.role, queryDto.sessionId, employeeEmail)
         
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');

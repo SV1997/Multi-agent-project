@@ -30,6 +30,12 @@ class RetrievalResponse(BaseModel):
     namespace: str
     query_time_ms: float
 
+class SQLRetrievalRequest(BaseModel):
+    employee_email: str
+    data: Any
+    query: str
+    namespace: Literal["legal", "hr", "engineering", "coding", "support"]
+    function: str
 
 # ---- Ingestion contracts ----
 
@@ -68,6 +74,39 @@ class PausedForReviewResponse(BaseModel):
     review_payload: Any
     thread_id: str
 
+class RetrievalPlan(BaseModel):
+    needs_retrieval: bool = Field(description="Choose whetehr a particular query need a retrieal or not")
+    source: Literal["none","sql","vector"] = Field(description="select the retrieval method")
+    reason: str = Field(description="describe reason to choose this retrieval method")
+
+class RetrievalAssessment(BaseModel):
+    relevant: bool = Field(description="Whether the retrieved text contains enough evidence to answer the user's question.")
+    reason: str = Field(description="Brief explanation of the evidence quality.")
+    can_be_answered_by_tool: bool = Field(
+        description="Whether one of the supplied live tools directly supports the user's request."
+    )
+
+class RewrittenQuery(BaseModel):
+    search_query: str = Field(description="A concise semantic-search query preserving important names, IDs, dates, and constraints.")
+
+class SQLQuerySelection(BaseModel):
+    query_name: Literal["leave_balance","CTC_data","get_ticket_status","contract_tracking","deployment_status"]
+    reason: str = Field(description="give reason to choose the particulat method for the query")
+    params: dict[str, str] = Field(
+        default_factory=dict,
+        description='''Key-value parameters required by the chosen function, extracted from the user's question. Empty if the function needs none. Never invent values not present in the question.
+        
+        '''
+    )
+
+class SQLResponse(BaseModel):
+    source: str
+    content: str
+
+class SQLRetrievalResponse(BaseModel):
+    results: list[SQLResponse]
+    namespace: str
+    query_time_ms: float
 # ---- Evaluation contracts ----
 
 class EvalRequest(BaseModel):
@@ -89,6 +128,7 @@ class OrchestratorRequest(BaseModel):
     query: str
     allowed_namespace: list[str]
     thread_id: Optional[str] = None
+    employee_email:str
 
 class RevisedAnswer(BaseModel):
     revised_answer: str

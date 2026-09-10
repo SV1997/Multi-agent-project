@@ -22,13 +22,15 @@ export class QueryService {
       private prismaService: PrismaService,
       private eventEmitter:EventEmitter2,
      private sessionService:SessionService){}
-    async forwardQuery(query:string, role:string){
+    async forwardQuery(query:string, role:string, employeeEmail:string){
       
          const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || [];
          const orchestratorUrl = this.configService.get<string>('ORCHESTRATOR_URL')||"";
          const res = await firstValueFrom(this.httpService.post(`${orchestratorUrl}`,{
       query: query,
       allowed_namespace: allowedNamespaces,
+      employeeEmail: employeeEmail
+
     },
     {
       headers: {
@@ -86,7 +88,7 @@ export class QueryService {
       console.log(updatePending, updateMessage)
     }
 
-    async forwardQueryStream(query:string, role:string, sessionId:string){
+    async forwardQueryStream(query:string, role:string, sessionId:string, employeeEmail:string){
       const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || [];
 
       const session = await this.prismaService.session.findUnique({
@@ -100,7 +102,8 @@ export class QueryService {
          const res = await firstValueFrom(this.httpService.post(`${orchestratorUrl}/stream`,{
       query: query,
       allowed_namespace: allowedNamespaces,
-      thread_id:threadId
+      thread_id:threadId,
+      employeeEmail:employeeEmail
     },
     {
       headers: {
