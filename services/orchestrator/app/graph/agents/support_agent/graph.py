@@ -11,5 +11,5 @@ support_agent = build_domain_agent(
     tools=[check_system_compliance],
     domain_name="support",
     retrieval_method=["sql", "vector"],
-    sql_function=["get_ticket_status"]
+    sql_functions=["get_ticket_status"]
 )
