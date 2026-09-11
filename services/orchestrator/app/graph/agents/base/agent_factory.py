@@ -312,7 +312,7 @@ Never invent a contract number that is not explicitly present in the question.
                 "context below. If a tool result indicates the data isn't "
                 "available (e.g. not implemented, empty, or an error), say so "
                 "plainly instead of guessing an answer.\n\n"
-                f"the long term memory that need to be refered to answer is {long_term_memory}"
+                f"the long term memory that need to be refered to answer is {long_term_memory}\n\n and if no memeory is available ignore this line"
                 f"Context:{context}"
             ))
             ] + state["messages"]
