@@ -12,6 +12,6 @@ legal_agent = build_domain_agent(
     tools=[check_compliance_status],
     domain_name="legal",
     retrieval_method=["sql", "vector"],
-    sql_function=["contract_tracking"]
+    sql_functions=["contract_tracking"]
 )
 
