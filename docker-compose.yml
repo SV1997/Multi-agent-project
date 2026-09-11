@@ -26,11 +26,23 @@ services:
       dockerfile: services/orchestrator/Dockerfile
     env_file:
       - ./services/orchestrator/.env
+    environment:
+      RETRIVAL_SERVICE_URL: http://retrieval-service:8001
     ports:
       - "8003:8003"
     depends_on:
       - postgres
-  
+      - retrieval-service
+
+  evaluation-service:
+    build:
+      context: .
+      dockerfile: services/evaluation_service/Dockerfile
+    env_file:
+      - ./services/evaluation_service/.env
+    ports:
+      - "8004:8004"
+
   seaweedfs:
     image: chrislusf/seaweedfs
     command: server -s3 -s3.port=8333 -dir=/data
@@ -43,11 +55,17 @@ services:
     build: ./services/api-gateway
     env_file:
       - ./services/api-gateway/.env
+    environment:
+      ORCHESTRATOR_URL: http://orchestrator:8003/api/v1/query
+      INGESTION_URL: http://ingestion-service:8002/api/v1/ingest
+      EVALUATION_SERVICE_URL: http://evaluation-service:8004/api/v1/evaluate
     ports:
       - "3000:3000"
     depends_on:
       # - postgres
       - orchestrator
+      - ingestion-service
+      - evaluation-service
       - seaweedfs
     restart: always
   frontend:
