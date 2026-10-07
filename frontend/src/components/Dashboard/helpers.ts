@@ -8,7 +8,7 @@ const STAGE_BY_NODE: Record<string, string> = {
   legal_agent: "agent",
   hr_agent: "agent",
   support_agent: "agent",
-  coding_agent: "agent",
+  finance_agent: "agent",
   engineering_agent: "agent",
 };
 
