@@ -16,7 +16,7 @@ spec:
         - name: ecr-secret
       containers:
         - name: ingestion-service
-          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/ingestion-service:88f4abb4cc9d368c5d2ee470ce410c84ec54ccb8
+          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/ingestion-service:51f9f8a69cb41dede71f69f6ba5952e822e099fa
           ports:
             - containerPort: 8002
           envFrom:
