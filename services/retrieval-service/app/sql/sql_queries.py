@@ -27,12 +27,12 @@ async def CTC_data(req:SQLRetrievalRequest):
       conn = await get_connection()
       try:
             row = await conn.fetchrow(
-                  'SELECT CTC FROM "EmployeeData" WHERE employee_email = $1 ',
+                  'SELECT employee_email, ctc FROM "EmployeeData" WHERE employee_email = $1',
                   req.employee_email
             )
             if row is None:
                   return [{"source":"sql:CTC_data", "content":"No ctc data available for employee"}]
-            return [{"source":"sql:CTC_data", "content":f"{row["employee_email"]} has {row['ctc']}"}]
+            return [{"source":"sql:CTC_data", "content":f"{row['employee_email']} has {row['ctc']}"}]
       finally:
               await conn.close()
 
@@ -43,7 +43,6 @@ async def get_ticket_status(req:SQLRetrievalRequest):
                   'SELECT * FROM "TICKETS" WHERE employee_email = $1 ORDER BY "created_At" DESC LIMIT 1',
                   req.employee_email
             )
-            print(row, f"Latest ticket {row['ticket_id']} for {row['employee_email']}")
             if row is None:
                   return [{"source":"sql:ticket_status", "content":"No ticket is available for employee"}]
             return [{
