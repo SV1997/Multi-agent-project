@@ -11,6 +11,6 @@ engineering_agent = build_domain_agent(
     tools= [check_service_status],
     domain_name="engineering",
     retrieval_method=["sql", "vector"],
-        sql_function=["deployment_status"]
+    sql_function=["deployment_status"]
 
 )

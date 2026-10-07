@@ -11,6 +11,7 @@ RUN pip install uv && uv sync --frozen --package orchestrator
 WORKDIR /app/services/orchestrator
 
 ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8003
 
