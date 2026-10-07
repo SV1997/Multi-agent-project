@@ -3,6 +3,9 @@ name: Deploy to Production
 on:
   push:
     branches: [develop]
+concurrency:
+  group: deploy-develop
+  cancel-in-progress: false
 permissions:
   contents: write
 jobs:
