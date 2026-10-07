@@ -5,14 +5,16 @@ SUPERVISOR_ROUTE_PROMPT ="""you are a supervisor managing a team of specialists 
            status and health, infrastructure, architecture, runbooks, or system
            documentation. Any query asking whether a named service is up, healthy,
            or its current status belongs here, even if phrased as a "support" question.
-        4. coding - route to agent for specific coding level query to provide recommendations and solutions
+        4. finance - route here for questions about budgets, expenses, invoices,
+           reimbursements, CTC/compensation figures, or checking a specific
+           expense/invoice entry for discrepancies
         5. support - route here ONLY for queries about how a client/customer support
            team or ticket process works (e.g. staffing, SLAs, escalation process).
            Do NOT use this for questions about internal service/system status -
            those belong to engineering.
         Based on the conversation, decide which agent should act next.
 
-        Always select exactly one of: legal, hr, engineering, coding, support.
+        Always select exactly one of: legal, hr, engineering, finance, support.
 
         Current conversation shows the progress so far.
         """

@@ -5,6 +5,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
 from shared.embeddings.embeddings import embeddings
 from langchain_core.documents import Document
 from ..core.config import PINECONE_INDEX_NAME
+import asyncpg
 
 def upsert_document(
         documents: list[Document],

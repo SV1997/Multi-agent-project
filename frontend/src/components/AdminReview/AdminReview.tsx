@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { Scale, Users, Cpu, Code2, LifeBuoy, Check, Pencil, Loader2, Inbox, Gauge, AlertTriangle } from "lucide-react";
+import { Scale, Users, Cpu, DollarSign, LifeBuoy, Check, Pencil, Loader2, Inbox, Gauge, AlertTriangle } from "lucide-react";
 import { fetchRequestGet, fetchRequestPost } from "../../common/NetworkOps";
 import ApiObj from "../../common/ApiObj";
 import { showToastError, showToastSuccess } from "../../toastMessage/toast";
@@ -16,7 +16,7 @@ const AGENTS: Record<string, Agent> = {
   legal_agent: { id: "legal_agent", name: "Legal", color: "#9B8CFF", icon: Scale },
   hr_agent: { id: "hr_agent", name: "HR", color: "#FF8FA3", icon: Users },
   engineering_agent: { id: "engineering_agent", name: "Engineering", color: "#58C4DC", icon: Cpu },
-  coding_agent: { id: "coding_agent", name: "Coding", color: "#8DD672", icon: Code2 },
+  finance_agent: { id: "finance_agent", name: "Finance", color: "#8DD672", icon: DollarSign },
   support_agent: { id: "support_agent", name: "Support", color: "#F2A93C", icon: LifeBuoy },
 };
 

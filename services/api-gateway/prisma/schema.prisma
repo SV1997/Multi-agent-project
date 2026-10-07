@@ -18,6 +18,7 @@ enum Role {
   legal_team
   hr_team
   support_team
+  finance_team
   engineering_team
   admin
   superadmin
@@ -44,6 +45,11 @@ model User {
   legalContract  LegalContract[]
   Deployment     Deployment[]
   tickets        Tickets[]
+  LeaveRecord    LeaveRecord[]
+  ContractReview  ContractReview[]
+  ExpenseClaim  ExpenseClaim[]
+  ExpenseReview ExpenseReview[]
+  TicketReview  TicketReview[]
 }
 
 model Session {
@@ -135,8 +141,18 @@ enum Status {
  pending
  resolved
  rejected
+ escalated
 }
 
+model TicketReview{
+  id              Int            @id @default(autoincrement())
+  reason        String
+  reviewedByUser    String
+  reviewedBy        User @relation(fields: [reviewedByUser], references: [Email])
+  ticketId        String
+  ticket_id Tickets @relation(fields: [ticketId], references: [ticket_id])
+  createdAt DateTime @default(now())
+}
 
 model Tickets {
   id              Int      @id @default(autoincrement())
@@ -146,6 +162,7 @@ model Tickets {
   pourpose        String
   created_At      DateTime @default(now())
   status          Status   @default(pending)
+  TicketReview  TicketReview[]
   @@map("TICKETS")
 }
 
@@ -154,6 +171,17 @@ enum ContractStatus {
   expiring_soon
   expired
   under_negotiation
+  under_review
+}
+
+model ContractReview{
+  id              Int            @id @default(autoincrement())
+  reason        String
+  reviewedByUser    String
+  reviewedBy        User @relation(fields: [reviewedByUser], references: [Email])
+  contract        String
+  contractNumber LegalContract @relation(fields: [contract], references: [contract_number])
+  createdAt DateTime @default(now())
 }
 
 model LegalContract {
@@ -167,6 +195,7 @@ model LegalContract {
   summary         String?
   created_At      DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
+  ContractReview  ContractReview[]
 }
 
 
@@ -186,4 +215,50 @@ model Deployment {
   triggeredBy     User             @relation(fields: [triggered_by_email], references: [Email])
   status          DeploymentStatus
   deployed_at     DateTime         @default(now())
+}
+
+model BM25Index {
+  namespace String @id
+  indexData Bytes
+  updatedAt DateTime @updatedAt
+  @@map("bm25_indexes")
+}
+
+model LeaveRecord{
+  id Int @id @default(autoincrement())
+  leave_applied_by String
+  employee_id User @relation(fields:[leave_applied_by], references:[Email])
+  start_date DateTime
+  end_date DateTime
+  leave_type String
+  reason String
+  total_number_of_days Int
+}
+
+enum ClaimStatus{
+  pending
+  approved
+  rejected
+  flagged
+}
+
+model ExpenseReview{
+  id              Int            @id @default(autoincrement())
+  reason        String
+  reviewedByUser    String
+  reviewedBy        User @relation(fields: [reviewedByUser], references: [Email])
+  claim        String
+  claim_id ExpenseClaim @relation(fields: [claim], references: [claim_id])
+  createdAt DateTime @default(now())
+}
+
+model ExpenseClaim{
+  id  Int  @id @default(autoincrement())
+  claim_id  String @unique()
+  employee_email  String
+  employee  User @relation(fields: [employee_email], references:[Email])
+  amount Decimal
+  status  ClaimStatus @default(pending)
+  submitted_at DateTime  @default(now())
+  ExpenseReview ExpenseReview[]
 }

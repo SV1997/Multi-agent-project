@@ -14,7 +14,7 @@ from datetime import datetime
 
 class RetrievalQuery(BaseModel):
     query: str
-    namespace: Literal["legal", "hr", "engineering", "coding", "support"]
+    namespace: Literal["legal", "hr", "engineering", "finance", "support"]
     top_k: int = 5
 
 
@@ -34,7 +34,7 @@ class SQLRetrievalRequest(BaseModel):
     employee_email: str
     data: Any
     query: str
-    namespace: Literal["legal", "hr", "engineering", "coding", "support"]
+    namespace: Literal["legal", "hr", "engineering", "finance", "support"]
     function: str
 
 # ---- Ingestion contracts ----
@@ -44,7 +44,7 @@ class SourceItem(BaseModel):
     type: Literal["pdf","url", "markdown"]
 
 class IngestionRequest(BaseModel):
-    namespace: Literal["legal", "hr", "engineering", "coding", "support"]
+    namespace: Literal["legal", "hr", "engineering", "finance", "support"]
     source: list[SourceItem]
 
 

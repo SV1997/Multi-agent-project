@@ -40,38 +40,21 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
     graph = StateGraph(AgentState)
     print(retrieval_method)
 
-    # ChatGroq._agenerate streams whenever self.streaming=True, regardless of
-    # response_format - it never consults the library's own _should_stream
-    # override that's supposed to skip streaming for json_schema/json_object.
-    # Streaming a strict-schema completion is far more failure-prone (Groq
-    # validates/reconstructs the constrained JSON incrementally across
-    # chunks), so structured-output calls get a non-streaming copy of the
-    # model instead of the (possibly streaming) llm passed in. They also get
-    # reasoning_effort="low": these are small classification/extraction
-    # tasks, and an unset (heavier default) reasoning effort lets the model
-    # burn its whole output-token budget on the reasoning trace, leaving
-    # nothing for the actual JSON - Groq then reports output_parse_failed
-    # with an empty failed_generation.
     structured_output_llm = llm.model_copy(update={"streaming": False, "reasoning_effort": "low"})
-    # Sql_structured_llm additionally has to extract free-text values (e.g. a
-    # contract number) into params, not just pick a literal - reasoning_effort
-    # "low" was causing it to skip that extraction and emit params={}. Keep
-    # it non-streaming (still fixes the parse-failure flake) but leave
-    # reasoning effort at the model's default.
+
     sql_selection_llm = llm.model_copy(update={"streaming": False})
 
-    # Groq's json_schema-strict structured output occasionally comes back
-    # unparsable for these reasoning models; with_retry absorbs that
-    # transient flake instead of failing the whole node.
-    retrieval_grader = structured_output_llm.with_structured_output(
+
+    retrieval_grader = sql_selection_llm.with_structured_output(
         RetrievalAssessment, method="json_schema", strict=True
     ).with_config(tags=["retrieval-grade"]).with_retry(stop_after_attempt=3)
     query_rewriter = structured_output_llm.with_structured_output(
         RewrittenQuery, method="json_schema", strict=True
     ).with_config(tags=["query-rewrite"]).with_retry(stop_after_attempt=3)
 
-    retrieval_planner = structured_output_llm.with_structured_output(RetrievalPlan,method="json_schema", strict=True).with_config(tags=["selecting-retriever"]).with_retry(stop_after_attempt=3)
+    retrieval_planner = sql_selection_llm.with_structured_output(RetrievalPlan,method="json_schema", strict=True).with_config(tags=["selecting-retriever"]).with_retry(stop_after_attempt=3)
     Sql_structured_llm = sql_selection_llm.with_structured_output(SQLQuerySelection, method="json_schema", strict=True).with_config(tags=["sql-retriever"]).with_retry(stop_after_attempt=3)
+    
     async def plan_retrieval(state)-> dict:
         available_ret = ", ".join(retrieval_method) or "none"
         prompt = f"""You choose the retrieval method this agent should use to answer the user's question.
@@ -94,19 +77,36 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
         - none: only for questions answerable from general knowledge with no lookup at all
           (greetings, clarifying questions, or facts that aren't domain- or person-specific).
 
+        Definitional rule: a question phrased as "what is X", "what does X mean", "explain X",
+        or asking about a general concept, term, law, or regulation (e.g. "what is GDPR", "what
+        is the leave policy") is NEVER sql, even if X sounds like it could relate to a record
+        type this agent has SQL access to. Only choose sql when the question asks for a specific
+        person's or entity's actual current data/record (a number, balance, status, or a named
+        record like a contract number or ticket ID) - not when it's asking what something is or
+        how something works in general. When unsure between sql and vector, prefer vector.
+
         This agent is described as follows - use it to judge what counts as "specific data" for sql:
         {system_prompt}
 
         Only choose a source that is actually available to this agent: {available_ret}.
         """
 
-        assessment =await retrieval_planner.ainvoke([
-            SystemMessage(content=(prompt)),
-            HumanMessage(content=(f"Available sources: {available_ret}\n\nUser question: {state.get('original_query', '')}"))
-        ])
+        try:
+            assessment = await retrieval_planner.ainvoke([
+                SystemMessage(content=(prompt)),
+                HumanMessage(content=(f"Available sources: {available_ret}\n\nUser question: {state.get('original_query', '')}"))
+            ])
+        except GroqAPIError:
+            logger.exception(
+                "Groq retrieval-planning generation failed for domain '%s'; "
+                "defaulting to vector if available.", domain_name
+            )
+            fallback_source = "vector" if "vector" in retrieval_method else "none"
+            return {"retrieval_source": fallback_source, "retrieval_plan_reason": "planning failed; defaulted"}
         source = assessment.source
         if source=="sql" and "sql" not in retrieval_method:
             source ="vector" if "vector" in retrieval_method else "none"
+        print(source, "source orchetrator 109")
         return {"retrieval_source":source, "retrieval_plan_reason":assessment.reason}
         
 
@@ -180,8 +180,14 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
         # actual error (unknown/misrouted function), not a fuzzy relevance
         # call, so no LLM grading is needed here. A clean "no record found"
         # result is a legitimate answer and is left to reason() to report.
+        # An sql:error here usually means plan_retrieval misrouted a general/
+        # definitional question to sql - fall back to vector once (same
+        # fallback_used guard as route_after_grading) instead of dead-ending
+        # on insufficient_evidence when vector might answer it fine.
         chunks = state.get("retrieved_context") or []
         if any(chunk.get("source") == "sql:error" for chunk in chunks):
+            if not state.get("fallback_used") and "vector" in retrieval_method:
+                return "fallback_to_vector"
             return "insufficient_evidence"
         return "reason"
 
@@ -212,6 +218,7 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
                 "answer": answer,
                 "sources": [],
                 "confidence": 0.0,
+                "context": [chunk.get("content", "") for chunk in (state.get("retrieved_context") or [])],
                 "requires_human_review": False,
             },
             "requires_human_review": False,
@@ -269,20 +276,10 @@ Never invent a contract number that is not explicitly present in the question.
     graph.add_node("fallback_to_sql",fallback_to_sql)
     graph.add_node("insufficient_evidence", insufficient_evidence)
     structured_llm = structured_output_llm.with_structured_output(AgentAnswerLLM, method="json_schema", strict=True).with_config(tags=["metadata-only"]).with_retry(stop_after_attempt=3)
-    # Its output is only ever inspected for .tool_calls - the actual answer
-    # text (when no tool is called) comes from a separate plain_llm call
-    # below - so it doesn't need to stream, and gets the same non-streaming,
-    # low-reasoning-effort treatment as the other structured/decision calls.
-    llm_with_tools = (structured_output_llm.bind_tools(tools) if tool else structured_output_llm).with_config(tags=["tool-decision"])
-    # Leaving tools unbound here isn't enough to stop tool-call generation:
-    # once the conversation history contains a prior AIMessage(tool_calls=...)
-    # / ToolMessage pair (from an earlier tool execution this turn), the
-    # model pattern-continues in tool-call format even with no tools
-    # attached to this request, and Groq rejects it ("Tool choice is none,
-    # but model called a tool") since there's nothing to validate the call
-    # against. Binding the tools with tool_choice="none" instead lets Groq
-    # actively constrain decoding to block tool-call tokens.
-    plain_llm = (llm.bind_tools(tools, tool_choice="none") if tool else llm).with_config(tags=["final-answer"])
+
+    llm_with_tools = (structured_output_llm.bind_tools(tools) if tools else structured_output_llm).with_config(tags=["tool-decision"])
+
+    plain_llm = llm.with_config(tags=["final-answer"])
 
     async def safe_plain_answer(messages):
         """plain_llm.ainvoke with a graceful fallback if Groq still rejects
@@ -312,6 +309,12 @@ Never invent a contract number that is not explicitly present in the question.
                 "context below. If a tool result indicates the data isn't "
                 "available (e.g. not implemented, empty, or an error), say so "
                 "plainly instead of guessing an answer.\n\n"
+                f"The requesting employee's email is: {state.get('employee_email')}. This is "
+                "already known from their authenticated session - use it directly for any "
+                "tool argument that needs the requesting user's employee ID/email. Never ask "
+                "the user for their own employee ID or email.\n\n"
+                "Check if the tools have any error if the error is about any data that need to be provided by the user than ask user for information else if the error is about system/db "
+                "failure then just tell some technical issue occur and try again later.\n\n"
                 f"the long term memory that need to be refered to answer is {long_term_memory}"
                 f"Context:{context}"
             ))
@@ -320,33 +323,36 @@ Never invent a contract number that is not explicitly present in the question.
         # Once out of tool calls, force a final natural-language answer
         # instead of letting the model emit another (unexecuted) tool call.
         sources = [chunk.get("source", "unknown") for chunk in state.get("retrieved_context") or []]
+        context_texts = [chunk.get("content", "") for chunk in state.get("retrieved_context") or []]
         if remaining<=0:
             answer = await safe_plain_answer(messages)
-            return await _finalize_answer(answer, messages, domain_name, sources, remaining)
+            return await _finalize_answer(answer, messages, domain_name, sources, context_texts, remaining)
 
         try:
             res = await llm_with_tools.ainvoke(messages)
+            print(res, "tool_name res")
         except GroqAPIError:
             logger.exception(
                 "Groq tool-decision generation failed to parse for domain '%s'; "
                 "falling back to a tool-less answer.", domain_name
             )
             answer_response = await safe_plain_answer(messages)
-            return await _finalize_answer(answer_response, messages, domain_name, sources, remaining)
+            return await _finalize_answer(answer_response, messages, domain_name, sources, context_texts, remaining)
 
         if res.tool_calls:
             tool_names = [tc["name"] for tc in res.tool_calls]
+            print(tool_names, "tool_names")
             await adispatch_custom_event("tool_call", {"tool_call": tool_names})
             return {"messages":[res], "tool_calls_remaining":remaining-1}
 
-            
+
 
 
         answer_response = await safe_plain_answer(messages)
 
-        return await _finalize_answer(answer_response, messages, domain_name, sources, remaining)
+        return await _finalize_answer(answer_response, messages, domain_name, sources, context_texts, remaining)
     
-    async def _finalize_answer(answer_response,  messages, domain_name, sources, remaining):
+    async def _finalize_answer(answer_response,  messages, domain_name, sources, context_texts, remaining):
         """
     Shared final step for BOTH Case A and Case B.
     answer_response: the AIMessage containing the natural-language answer 
@@ -375,6 +381,7 @@ Never invent a contract number that is not explicitly present in the question.
             "domain_name": domain_name,
             "answer": answer_response.content,
             "sources": sources,
+            "context": context_texts,
             "confidence":confidence,
             "requires_human_review": requires_human_review
 
@@ -399,7 +406,11 @@ Never invent a contract number that is not explicitly present in the question.
     graph.add_conditional_edges(
         "sql_retrieval",
         route_after_sql,
-        {"reason": "reason", "insufficient_evidence": "insufficient_evidence"},
+        {
+            "reason": "reason",
+            "insufficient_evidence": "insufficient_evidence",
+            "fallback_to_vector": "fallback_to_vector",
+        },
     )
     graph.add_conditional_edges(
         "grade_retrieval",
@@ -417,7 +428,7 @@ Never invent a contract number that is not explicitly present in the question.
     graph.add_edge("rewrite_query", "retrieve")
     graph.add_edge("insufficient_evidence", END)
     if tools:
-        graph.add_node("tools", ToolNode(tools))
+        graph.add_node("tools", ToolNode(tools,handle_tool_errors = lambda e: f"ERROR: the action failed ({type(e).__name__}). PLease try again later" ))
         graph.add_conditional_edges("reason",route_after_reason,{"tools":"tools", "reason":"reason", "end":END})
         graph.add_edge("tools","reason")
 

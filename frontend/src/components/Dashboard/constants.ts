@@ -1,4 +1,4 @@
-import { Scale, Users, Cpu, Code2, LifeBuoy } from "lucide-react";
+import { Scale, Users, Cpu, DollarSign, LifeBuoy } from "lucide-react";
 import type { Agent } from "./types";
 
 export const COLORS = {
@@ -17,7 +17,7 @@ export const AGENTS: Agent[] = [
   { id: "legal_agent", name: "Legal", color: "#9B8CFF", icon: Scale, desc: "Contracts, policy, compliance" },
   { id: "hr_agent", name: "HR", color: "#FF8FA3", icon: Users, desc: "Benefits, leave, onboarding" },
   { id: "engineering_agent", name: "Engineering", color: "#58C4DC", icon: Cpu, desc: "Infra, architecture, incidents" },
-  { id: "coding_agent", name: "Coding", color: "#8DD672", icon: Code2, desc: "Snippets, APIs, standards" },
+  { id: "finance_agent", name: "Finance", color: "#8DD672", icon: DollarSign, desc: "Budgets, expenses, invoices" },
   { id: "support_agent", name: "Support", color: "#F2A93C", icon: LifeBuoy, desc: "Tickets, how-tos, triage" },
 ];
 

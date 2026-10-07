@@ -1,7 +1,7 @@
 import logging
 from langgraph.graph import StateGraph, START, END
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
 from typing import Literal
 from groq import APIError as GroqAPIError
@@ -14,7 +14,7 @@ from .prompts.supervisor_routing import SUPERVISOR_ROUTE_PROMPT
 from .agents.hr_agent.graph import hr_agent
 from .agents.engineering_agent.graph import engineering_agent
 from .agents.support_agent.graph import support_agent
-from .agents.coding_agent.graph import coding_agent
+from .agents.finance_agent.graph import finance_agent
 from langgraph.checkpoint.memory import MemorySaver
 from .hitl.interrupts import human_review_gate
 import asyncio
@@ -22,12 +22,24 @@ import asyncio
 
 def set_supervisor_agent(checkpointer,store):
     class DomainClassification(BaseModel):
-        domain: Literal["legal","hr","engineering","coding","support"] = Field(description="It provide routing detail for the tool base on the literal")
+        domain: Literal["legal","hr","engineering","finance","support"] = Field(description="It provide routing detail for the tool base on the literal")
+    class MemoryFact(BaseModel):
+        topic_key: str = Field(description="Short, stable key identifying the fact's topic.")
+        content: str = Field(description="The durable fact itself.")
     class MemoryExtraction(BaseModel):
-        facts: list[dict] = Field(description="List of {'topic_key': str, 'content': str} for durable facts worth remembering. Empty list if nothing durable.")
+        facts: list[MemoryFact] = Field(description="Durable facts worth remembering. Empty list if nothing durable.")
+    # Untried lever for the recurring output_parse_failed on this call:
+    # method="json_schema" uses Groq's strict constrained-decoding path;
+    # method="function_calling" goes through Groq's tool-calling path
+    # instead, which behaves differently under the same input and has
+    # empirically been more robust for other structured calls in this
+    # codebase. streaming=False/reasoning_effort="low" were already set
+    # and didn't fully resolve this, and history is already filtered of
+    # tool-call artifacts (see _is_clean_conversational_turn below) - this
+    # is the next thing to try, not a confirmed fix.
     classifier_llm = (
         init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0.2, streaming=False, reasoning_effort="low")
-        .with_structured_output(DomainClassification, method="json_schema", strict=True)
+        .with_structured_output(DomainClassification, method="function_calling")
         .with_config(tags=["classification-only"])
         .with_retry(stop_after_attempt=3)
     )
@@ -36,7 +48,7 @@ def set_supervisor_agent(checkpointer,store):
         init_chat_model(model="groq:openai/gpt-oss-120b", streaming=False, reasoning_effort="high").with_config(tags=["summarization"]).with_retry(stop_after_attempt=3)
     )
 
-    memory_extraction_llm = (init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0.2, streaming=False).
+    memory_extraction_llm = (init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0.2, streaming=False, reasoning_effort="low").
     with_structured_output(MemoryExtraction,method="json_schema", strict=True )
     .with_config(tags=["fetching_memory"])
     .with_retry(stop_after_attempt=3)
@@ -71,59 +83,75 @@ def set_supervisor_agent(checkpointer,store):
         human_messages = [message for message in state["messages"] if isinstance(message, HumanMessage)]
         return human_messages[-1].content if human_messages else ""
 
+    def memory_namespace_key(employee_email: str | None) -> str:
+        # langgraph's store rejects '.' in namespace labels, but every
+        # employee email has one - this was silently failing on every
+        # store.aput/asearch call, so long-term memory never actually
+        # stored or retrieved anything.
+        return (employee_email or "").replace(".", "_")
+
     async def _extract_memories_task(state:AgentState)-> None:
-        answer = (
-                    "I couldn't find enough relevant information in the authorized knowledge base "
-                    "to answer this reliably. Please provide a more specific question or ask an "
-                    "authorized reviewer for help."
-                )
         try:
             final_answer = state.get("final_answer") or{}
             if(final_answer.get("confidence",0.0)<=0.3):
                         return
+            query = latest_human_query(state)
             extraction = await memory_extraction_llm.ainvoke([
-                SystemMessage(content="""From the finalisez answer generated from the current user query extract the facts, any key words, that are important for further use and will stay consistent 
-                for the chat in future. if use asks to store anything specifically store that infromationn too.
-                Don't extact the error messages 
-                1. if the agents failed to answer, 
-                2. Domain classification failed, 
-                3. any issue if the service or api failed to answer,
-                4. or any agent denied to answer or 
-                5. kept in loop for human review
-                6. insufficient evidence
-                don't extract them.
+                SystemMessage(content="""You are extracting long-term memory for a specific employee from one Q&A turn.
+
+                Only extract facts that are:
+                - Specific to this employee (their situation, preferences, decisions, commitments, or personal identifiers), OR
+                - Something the user explicitly asked to be remembered.
+
+                Do NOT extract:
+                - General knowledge-base or policy content restated in the answer (e.g. "the leave policy allows 12 days") unless
+                  it is tied to a fact about this employee specifically (e.g. "the employee has 5 leave days remaining").
+                - Anything that is just a paraphrase or summary of the answer text.
+                - Error states: the agent failed to answer, domain classification failed, an upstream service/API failed,
+                  the agent declined to answer, the turn is pending human review, or there was insufficient evidence.
+
+                If nothing in the answer meets the bar above, return an empty facts list. Most turns should produce zero facts -
+                only extract when there is a genuinely durable, employee-specific detail worth recalling in a future conversation.
                 """),
-                HumanMessage(content=f"the answer generated from user query is {state.get('final_answer').get("answer")}")
+                HumanMessage(content=f"User asked: {query}\n\nAssistant answered: {final_answer.get('answer')}")
             ])
 
             for fact in extraction.facts:
-                topic_key=fact.get("topic_key")
-                content= fact.get("content")
+                topic_key=fact.topic_key
+                content= fact.content
                 if not topic_key or not content:
                     continue
                 await store.aput(
-                    (state.get("employee_email"),),
+                    (memory_namespace_key(state.get("employee_email")),),
                     topic_key,
                     {"content":content}
                 )
         except Exception:
-            logger.exception(("Background memory extraction failed for employee '%s'.", state.get("employee_email")))
+            logger.exception("Background memory extraction failed for employee '%s'.", state.get("employee_email"))
     _background_tasks:set[asyncio.Task] = set()
 
 
     async def retrieve_memories(state:AgentState)->dict:
-        query = latest_human_query(state)
-        if not query:
+        try:
+            query = latest_human_query(state)
+            print(query, 137)
+            if not query:
+                return {"long_term_memory":None}
+            results = await store.asearch(
+                (memory_namespace_key(state.get("employee_email")),),
+                query = query,
+                limit=3
+            )
+            print(results, "145")
+            if not results:
+                return {"long_term_memory":None}
+            memory_text = "\n".join(r.value.get("content","") for r in results)
+            print(memory_text)
+            return {"long_term_memory":memory_text}
+        except Exception:
+            logger.exception("some issue occurred while fetching memories")
             return {"long_term_memory":None}
-        results = await store.asearch(
-            (state.get("employee_email"),),
-            query = query,
-            limit=3
-        )
-        if not results:
-            return {"long_term_memory":None}
-        memory_text = "\n".join(r.value.get("content","") for r in results)
-        return {"long_term_memory":memory_text}
+
 
     async def extract_memories(state:AgentState)-> dict:
         task = asyncio.create_task(_extract_memories_task(state))
@@ -131,17 +159,18 @@ def set_supervisor_agent(checkpointer,store):
         task.add_done_callback(_background_tasks.discard)
         return{}
 
+    def _is_clean_conversational_turn(m) -> bool:
+        if isinstance(m, ToolMessage):
+            return False
+        if isinstance(m, AIMessage) and getattr(m, "tool_calls", None):
+            return False
+        return True
+
     async def classify_domain(state: AgentState)-> dict:
         prompt = SUPERVISOR_ROUTE_PROMPT
 
-        messages = [SystemMessage(content=prompt)] + state["messages"][-CLASSIFIER_HISTORY_WINDOW:]
-
-        # Groq's json_schema-strict structured output occasionally comes back
-        # with an unparsable (sometimes empty) generation for this reasoning
-        # model; with_retry absorbs that transient flake instead of failing
-        # the whole turn. If all retries are exhausted, fail soft into
-        # classification_failed instead of crashing the turn - we can't pick
-        # an authorized domain to route to without a real classification.
+        clean_history = [m for m in state["messages"] if _is_clean_conversational_turn(m)]
+        messages = [SystemMessage(content=prompt)] + clean_history[-CLASSIFIER_HISTORY_WINDOW:]
         try:
             decision = await classifier_llm.ainvoke(messages)
         except GroqAPIError:
@@ -221,7 +250,7 @@ def set_supervisor_agent(checkpointer,store):
     graph.add_node("hr_agent", hr_agent)
     graph.add_node("engineering_agent", engineering_agent)
     graph.add_node("support_agent", support_agent)
-    graph.add_node("coding_agent", coding_agent)
+    graph.add_node("finance_agent", finance_agent)
     graph.add_node("human_review_gate",human_review_gate)
     graph.add_node("access_denied",access_denied)
     graph.add_node("classification_failed",classification_failed)
@@ -240,13 +269,13 @@ def set_supervisor_agent(checkpointer,store):
         "check_authorization", route_to_agent,{
             "legal":"legal_agent",
             "hr" : "hr_agent",
-            "coding": "coding_agent",
+            "finance": "finance_agent",
             "support": "support_agent",
             "engineering": "engineering_agent",
             "denied": "access_denied"
         }
     )
-    graph.add_edge("coding_agent", "human_review_gate")
+    graph.add_edge("finance_agent", "human_review_gate")
     graph.add_edge("legal_agent", "human_review_gate")
     graph.add_edge("hr_agent", "human_review_gate")
     graph.add_edge("engineering_agent", "human_review_gate")

@@ -1,32 +1,77 @@
 from langchain_core.tools import tool
+import asyncpg
+from ....core.config import DATABASE_URL
+from datetime import datetime
 
-@tool
-def check_balance_leaves(employeeid:str)->str:
+async def get_connection():
+    return await asyncpg.connect(DATABASE_URL)
+
+@tool(parse_docstring=True)
+async def submit_leave_request(
+    employeeid: str,
+    leave_type: str,
+    start_date: str,
+    end_date: str,
+    reason: str = "",
+) -> str:
+    """Submit a leave request on behalf of an employee.
+
+    This files a real request, so call it only after the user has asked to
+    apply for leave AND has explicitly confirmed the details you summarised.
+    Do not use it for leave policy questions, balance checks, or approvals.
+
+    Args:
+        employeeid: The employee's email, exactly as the user stated it.
+        leave_type: The leave category as named in the knowledge base (for example "casual leave").
+        start_date: First day of leave in ISO format YYYY-MM-DD.
+        end_date: Last day of leave in ISO format YYYY-MM-DD, on or after start_date.
+        reason: Optional reason given by the user. Empty string if none was given.
+
+    Returns:
+        A confirmation with a request reference on success, or an error message.
     """
-    Look up an employee's current remaining leave balance from the HR
-    database, given their employee ID.
+    try:
+        date1 = datetime.strptime(start_date, "%Y-%m-%d")
+        date2 = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        return f"ERROR: dates must be in YYYY-MM-DD format, got start_date={start_date!r} end_date={end_date!r}."
 
-    Call this tool whenever the user asks, in any wording, how many
-    leave days/leaves they or another employee have left, remaining,
-    available, or accrued - e.g. "how many leaves do I have left",
-    "what's my leave balance", "check my leaves", "remaining PTO for
-    employee E1042", or a follow-up like "and for employee E2001?".
-    This includes indirect phrasings, not just exact matches.
+    if date2 < date1:
+        return "ERROR: end_date is before start_date."
 
-    Requires a concrete employee ID. If the user hasn't given one
-    (in this message or earlier in the conversation), do NOT call
-    this tool with a placeholder or guessed ID - ask the user for
-    their employee ID first, then call this tool once you have it.
+    gap = (date2 - date1).days + 1
 
-    Do NOT call this tool for: leave approval requests, leave
-    applications, leave encashment, general leave policy questions,
-    or questions about types/categories of leave available. Answer
-    those from the retrieved knowledge-base context instead - the
-    context never contains a specific person's live balance, only
-    this tool does.
-    """
+    conn = await get_connection()
+    try:
+        async with conn.transaction():
+            employee = await conn.fetchrow(
+                'SELECT leave_balance FROM "EmployeeData" WHERE employee_email = $1',
+                employeeid,
+            )
+            if employee is None:
+                return f"ERROR: no employee record found for {employeeid!r}. Leave request was NOT submitted."
+            if employee["leave_balance"] < gap:
+                return (
+                    f"ERROR: requested {gap} day(s) but {employeeid} only has "
+                    f"{employee['leave_balance']} day(s) remaining. Leave request was NOT submitted."
+                )
 
-    # TODO: wire up to the real employee/HR database. Until then, this stub
-    # deliberately returns no numeric data so the agent cannot pass off a
-    # fabricated leave count as real.
-    return "TOOL_NOT_IMPLEMENTED: no leave balance data source is connected yet."
+            await conn.execute(
+                'UPDATE "EmployeeData" SET leave_balance = leave_balance - $1 WHERE employee_email = $2',
+                gap, employeeid,
+            )
+            record = await conn.fetchrow(
+                """
+                INSERT INTO "LeaveRecord" (leave_applied_by, start_date, end_date, total_number_of_days, leave_type, reason)
+                VALUES ($1, $2, $3, $4, $5,$6)
+                RETURNING id
+                """,
+                employeeid, date1, date2, gap,leave_type, reason
+            )
+    finally:
+        await conn.close()
+
+    return (
+        f"Leave request submitted. Reference #{record['id']}: {leave_type} for {employeeid}, "
+        f"{start_date} to {end_date} ({gap} day(s)). Reason: {reason or 'not given'}."
+    )

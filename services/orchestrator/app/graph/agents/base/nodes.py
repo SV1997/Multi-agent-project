@@ -27,7 +27,7 @@ async def retrieve_context(state:AgentState)-> dict:
         )
         response.raise_for_status()
         data = response.json()
-
+        print(data)
     return {
         "retrieved_context": data["results"],
         "retrieval_attempts": state.get("retrieval_attempts", 0) + 1,

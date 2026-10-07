@@ -29,7 +29,7 @@ export class QueryService {
          const res = await firstValueFrom(this.httpService.post(`${orchestratorUrl}`,{
       query: query,
       allowed_namespace: allowedNamespaces,
-      employeeEmail: employeeEmail
+      employee_email: employeeEmail
 
     },
     {
@@ -103,7 +103,7 @@ export class QueryService {
       query: query,
       allowed_namespace: allowedNamespaces,
       thread_id:threadId,
-      employeeEmail:employeeEmail
+      employee_email:employeeEmail
     },
     {
       headers: {
@@ -159,8 +159,8 @@ export class QueryService {
             domain: domain,
             turnId:turnId,
             userId: userId,
-            sources: reviewPayload.answer.sources.map((s:any)=>JSON.stringify(s)),
-            context: reviewPayload.context.map((c:any)=>JSON.stringify(c)),
+            sources: (reviewPayload.answer.sources ?? []).map((s:any)=>JSON.stringify(s)),
+            context: (reviewPayload.context ?? []).map((c:any)=>JSON.stringify(c)),
             answer: reviewPayload.answer.answer,
             confidence: reviewPayload.answer.confidence,
             resolved: false
@@ -170,8 +170,8 @@ export class QueryService {
             domain: domain,
             turnId:turnId,
             userId: userId,
-            sources: reviewPayload.answer.sources.map(s=>JSON.stringify(s)),
-            context: reviewPayload.context.map(c=>JSON.stringify(c)),
+            sources: (reviewPayload.answer.sources ?? []).map(s=>JSON.stringify(s)),
+            context: (reviewPayload.context ?? []).map(c=>JSON.stringify(c)),
             answer: reviewPayload.answer.answer,
             confidence: reviewPayload.answer.confidence,
             resolved: false,
