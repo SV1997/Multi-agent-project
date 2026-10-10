@@ -16,7 +16,7 @@ spec:
         - name: ecr-secret
       containers:
         - name: frontend
-          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/frontend:e121ecb3d8678adbce36df50609b0762e0c9b1ae
+          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/frontend:4178fb73ec695c0bf7af570eb9ab2d1b582980da
           ports:
             - containerPort: 80
 ---

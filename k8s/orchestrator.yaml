@@ -16,7 +16,7 @@ spec:
         - name: ecr-secret
       containers:
         - name: orchestrator
-          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/orchestrator:e121ecb3d8678adbce36df50609b0762e0c9b1ae
+          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/orchestrator:4178fb73ec695c0bf7af570eb9ab2d1b582980da
           ports:
             - containerPort: 8003
           envFrom:
