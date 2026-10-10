@@ -10,5 +10,6 @@ finance_agent = build_domain_agent(
     system_prompt=FINANCE_AGENT_PROMPT,
     tools=[create_claim, flag_invoice_discrepancy, change_claim_status],
     domain_name="finance",
-    retrieval_method = ["vector"]
+    retrieval_method = ["sql","vector"],
+    sql_function = ["claim_tracking"]
 )
