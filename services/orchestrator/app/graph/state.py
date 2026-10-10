@@ -26,3 +26,4 @@ class AgentState(TypedDict):
     fallback_used: bool | None
     employee_email:str
     long_term_memory: str | None
+    react_trace: list[dict]

@@ -12,7 +12,7 @@ from langchain_core.callbacks import adispatch_custom_event
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../.."))
 from .nodes import retrieve_sql_context
 from shared.contracts.schema import AgentAnswer, AgentAnswerLLM, RetrievalAssessment, RetrievalPlan, RewrittenQuery, SQLQuerySelection
-
+from langchain_core.runnables import RunnableConfig
 logger = logging.getLogger(__name__)
 
 def route_after_reason(state:AgentState)-> str:
@@ -33,6 +33,7 @@ SQL_FUNCTION_DESCRIPTIONS = {
     "get_ticket_status": "status of the user's most recent support ticket",
     "contract_tracking": "status/details of a specific legal contract, identified by contract number",
     "deployment_status": "status of the user's most recent deployment",
+    "claim_tracking": "status/details of a specific expense claim, identified by claim ID",
 }
 def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: str = "", retrieval_method: list[str] = None, sql_function:list[str]=None):
     tool = tools or []
@@ -316,6 +317,8 @@ Never invent a contract number that is not explicitly present in the question.
                 "Check if the tools have any error if the error is about any data that need to be provided by the user than ask user for information else if the error is about system/db "
                 "failure then just tell some technical issue occur and try again later.\n\n"
                 f"the long term memory that need to be refered to answer is {long_term_memory}"
+                "Before calling a tool, write one sentence saying what you need and why. "
+                "Call one tool at a time and wait for its result before deciding the next step.\n\n"
                 f"Context:{context}"
             ))
             ] + state["messages"]
@@ -325,6 +328,9 @@ Never invent a contract number that is not explicitly present in the question.
         sources = [chunk.get("source", "unknown") for chunk in state.get("retrieved_context") or []]
         context_texts = [chunk.get("content", "") for chunk in state.get("retrieved_context") or []]
         if remaining<=0:
+            last = messages[-1]
+            if isinstance(last,AIMessage) and last.tool_calls:
+                mesagess = messages[:-1] + [AIMessage(content = last.content or "")]
             answer = await safe_plain_answer(messages)
             return await _finalize_answer(answer, messages, domain_name, sources, context_texts, remaining)
 
@@ -340,10 +346,18 @@ Never invent a contract number that is not explicitly present in the question.
             return await _finalize_answer(answer_response, messages, domain_name, sources, context_texts, remaining)
 
         if res.tool_calls:
-            tool_names = [tc["name"] for tc in res.tool_calls]
-            print(tool_names, "tool_names")
-            await adispatch_custom_event("tool_call", {"tool_call": tool_names})
-            return {"messages":[res], "tool_calls_remaining":remaining-1}
+            trace = list(state.get("react_trace") or [])
+            step = len({e["step"] for e in trace})+1
+            thought = (res.content or res.additional_kwargs.get("reasoning_content") or "").strip()
+            for tc in res.tool_calls:
+                entry = {"step": step, "thought": thought,
+                         "action":{"tool":tc["name"], "args":tc["args"]},
+                         "call_id":tc["id"], "observation":None,
+                         "budget_left": remaining-1
+                         }
+                trace.append(entry)
+                await adispatch_custom_event("react_step", {"react_step": entry})
+            return {"messages":[res], "tool_calls_remaining":remaining-1, "react_trace":trace}
 
 
 
@@ -393,6 +407,16 @@ Never invent a contract number that is not explicitly present in the question.
             "tool_calls_remaining":remaining
         }
 
+    tool_node = ToolNode(tools, handle_tool_errors=lambda e: f"ERROR: the action failed ({type(e).__name__}). Please try again later.")
+    async def tools_node(state:AgentState, config:RunnableConfig)-> dict:
+        result = await tool_node.ainvoke(state,config)
+        trace = [dict(e) for e in state.get("react_trace") or []]
+        for msg in result["messages"]:
+            for e in trace:
+                if e.get("call_id") == msg.tool_call_id:
+                    e["observation"] = str(msg.content)[:500]
+                    await adispatch_custom_event("observation", {"observation":e})
+        return {"messages": result["messages"], "react_trace":trace}
     graph.add_node("reason", reason)
     graph.set_entry_point("prepare_retrieval")
     graph.add_edge("prepare_retrieval","plan_retrieval")
@@ -428,7 +452,7 @@ Never invent a contract number that is not explicitly present in the question.
     graph.add_edge("rewrite_query", "retrieve")
     graph.add_edge("insufficient_evidence", END)
     if tools:
-        graph.add_node("tools", ToolNode(tools,handle_tool_errors = lambda e: f"ERROR: the action failed ({type(e).__name__}). PLease try again later" ))
+        graph.add_node("tools", tools_node)
         graph.add_conditional_edges("reason",route_after_reason,{"tools":"tools", "reason":"reason", "end":END})
         graph.add_edge("tools","reason")
 
