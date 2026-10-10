@@ -350,7 +350,13 @@ export default function Dashboard() {
         ) : (
           <>
             <ConversationHeader messages={messages} activeAgent={activeAgent} />
-            <MessageList ref={scrollRef} loadingMessages={loadingMessages} messages={messages} />
+            <MessageList
+              ref={scrollRef}
+              loadingMessages={loadingMessages}
+              messages={messages}
+              reactSteps={state.reactSteps}
+              isStreaming={state.isStreaming}
+            />
             <ChatComposer
               input={input}
               onInputChange={setInput}
