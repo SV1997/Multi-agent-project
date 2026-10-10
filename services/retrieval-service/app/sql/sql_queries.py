@@ -96,8 +96,8 @@ async def claim_tracking(req:SQLRetrievalRequest):
               if claim_id is None:
                      return [{"source":"sql:claim_tracking", "content":"Please provide a claim ID"}]
               row = await conn.fetchrow(
-                     'SELECT * FROM "ExpenseClaim" WHERE claim_id=$1',
-                     claim_id
+                     'SELECT * FROM "ExpenseClaim" WHERE claim_id=$1 AND employee_email=$2',
+                     claim_id, req.employee_email
               )
               if row is None:
                      return [{"source":"sql:claim_tracking", "content":"No claim is available for this claim id"}]
