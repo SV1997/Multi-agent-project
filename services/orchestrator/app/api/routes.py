@@ -46,7 +46,8 @@ async def event_generator(req:OrchestratorRequest):
         "messages":[HumanMessage(content=req.query)],
         "domain": None,
         "retrieved_context": [],
-        "tool_calls_remaining":3,
+        "tool_calls_remaining":6,
+        "react_trace": [],
         "requires_human_review": False,
         "final_answer": None,
         "allowed_namespace": req.allowed_namespace,
@@ -68,6 +69,10 @@ async def event_generator(req:OrchestratorRequest):
             if event["event"] == "on_custom_event":   # verify this exact name for your version
                 custom_data = event.get("data", {})
                 print(custom_data)
+                if "react_step" in custom_data:
+                    yield f"data:{json.dumps({'react_step': custom_data['react_step']})}\n\n"
+                if "observation" in custom_data:
+                    yield f"data:{json.dumps({'observation': custom_data['observation']})}\n\n"
                 if "tool_call" in custom_data:
                     yield f"data:{json.dumps({'tool_call': custom_data['tool_call']})}\n\n"
 
@@ -142,6 +147,7 @@ async def orchatrator_query(req:OrchestratorRequest):
             "domain": None,
             "retrieved_context": [],
             "tool_calls_remaining":3,
+            "react_trace": [],
             "requires_human_review": False,
             "final_answer": None,
             "allowed_namespace": req.allowed_namespace,

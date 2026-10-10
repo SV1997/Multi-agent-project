@@ -50,16 +50,17 @@ async def create_claim(amount: float, employee_email: str) -> str:
 
     return f"Claim {claim_id} has been created with status pending."
 
-CLAIM_STATUSES = {"pending", "approved", "rejected", "flagged"}
+CLAIM_STATUSES = {"pending", "flagged"}
 @tool(parse_docstring=True)
 async def change_claim_status(claim_id: str, status: str) -> str:
     """Set the status of an existing expense claim.
 
-    Not exposed to any agent: it has no role check, so it must not be
-    reachable by employees who could approve their own claims.
+    This performs a real action, so use it ONLY when the user explicitly
+    asks to change, set, or update a claim's status to one of the valid
+    values below, AND has confirmed in a message that follows your summary.
 
     Args:
-        claim_id: The claim's ID, exactly as stored.
+        claim_id: The claim's ID, exactly as the user stated it.
         status: The new status: pending, approved, rejected, or flagged.
 
     Returns:
