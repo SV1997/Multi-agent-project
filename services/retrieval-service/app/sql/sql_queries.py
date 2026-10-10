@@ -88,3 +88,19 @@ async def deployment_status(req:SQLRetrievalRequest):
                   return [{"source":"sql:deployment_status", "content":f"{row["service_name"]} status is {row["status"]} deployed at {[row["deployed_at"]]}"}]
       finally:
                     await conn.close()
+
+async def claim_tracking(req:SQLRetrievalRequest):
+       conn = await get_connection()
+       try:
+              claim_id = req.data.get('claim_id')
+              if claim_id is None:
+                     return [{"source":"sql:claim_tracking", "content":"Please provide a claim ID"}]
+              row = await conn.fetchrow(
+                     'SELECT * FROM "ExpenseClaim" WHERE claim_id=$1',
+                     claim_id
+              )
+              if row is None:
+                     return [{"source":"sql:claim_tracking", "content":"No claim is available for this claim id"}]
+              return [{"source":"sql:claim_tracking", "content":f"Claim {row['claim_id']} status is {row['status']}"}]
+       finally:
+              await conn.close()
