@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 def route_after_reason(state:AgentState)-> str:
     msg = state["messages"][-1]
     if hasattr(msg, "tool_calls") and msg.tool_calls:
-        if state["tool_calls_remaining"]>0:
+        if state["tool_calls_remaining"]>=0:
             return "tools"
         # Out of tool calls but the model still emitted one (unexecuted) -
         # loop back to force a final, tool-less answer instead of ending
@@ -248,8 +248,9 @@ For any query about the user's ticket, latest ticket, existing ticket, ticket ID
 ticket status, ALWAYS choose get_ticket_status. Never choose another function for a
 ticket-record query.
 For contract_tracking, include params={{"contract_number": "<the number mentioned>"}}.
+For claim_tracking, include params={{"claim_id": "<the id mentioned>"}}.
 For all other functions, params should be empty ({{}}).
-Never invent a contract number that is not explicitly present in the question.
+Never invent a contract number or claim ID that is not explicitly present in the question.
                 
 """),
                 HumanMessage(content=f"{state.get("search_query")}")
@@ -330,7 +331,7 @@ Never invent a contract number that is not explicitly present in the question.
         if remaining<=0:
             last = messages[-1]
             if isinstance(last,AIMessage) and last.tool_calls:
-                mesagess = messages[:-1] + [AIMessage(content = last.content or "")]
+                messages = messages[:-1] + [AIMessage(content = last.content or "")]
             answer = await safe_plain_answer(messages)
             return await _finalize_answer(answer, messages, domain_name, sources, context_texts, remaining)
 
