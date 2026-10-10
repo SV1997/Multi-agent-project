@@ -10,6 +10,7 @@ from ..sql.sql_queries import (
     deployment_status,
     get_ticket_status,
     leave_balance,
+    claim_tracking
 )
 from ..pinecone.namespace_router import query_namespace
 import time
@@ -32,6 +33,7 @@ async def sql_query(req:SQLRetrievalRequest):
         "get_ticket_status": get_ticket_status,
         "contract_tracking": contract_tracking,
         "deployment_status": deployment_status,
+        "claim_tracking": claim_tracking
     }
     handler = query_handlers.get(req.function)
     if handler is None:
