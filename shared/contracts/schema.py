@@ -91,7 +91,7 @@ class RewrittenQuery(BaseModel):
     search_query: str = Field(description="A concise semantic-search query preserving important names, IDs, dates, and constraints.")
 
 class SQLQuerySelection(BaseModel):
-    query_name: Literal["leave_balance","CTC_data","get_ticket_status","contract_tracking","deployment_status"]
+    query_name: Literal["leave_balance","CTC_data","get_ticket_status","contract_tracking","deployment_status","claim_tracking"]
     reason: str = Field(description="give reason to choose the particulat method for the query")
     params: dict[str, str] = Field(
         default_factory=dict,
