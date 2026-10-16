@@ -42,12 +42,15 @@ model User {
   session        Session[]
   refreshToken   RefreshToken[]
   employeeData   EmployeeData[]
-  legalContract  LegalContract[]
+  managedContracts   LegalContract[] @relation("ContractManager")
+  assignedContracts  LegalContract[] @relation("ContractAssignee")
   Deployment     Deployment[]
-  tickets        Tickets[]
+  ownedTickets   Tickets[] @relation("TicketOwner")
+  assignedTickets Tickets[] @relation("TicketAssignee")
   LeaveRecord    LeaveRecord[]
   ContractReview  ContractReview[]
-  ExpenseClaim  ExpenseClaim[]
+  ownedClaims    ExpenseClaim[] @relation("ClaimOwner")
+  assignedClaims ExpenseClaim[] @relation("ClaimAssignee")
   ExpenseReview ExpenseReview[]
   TicketReview  TicketReview[]
 }
@@ -158,7 +161,9 @@ model Tickets {
   id              Int      @id @default(autoincrement())
   ticket_id       String   @unique
   employee_email  String
-  user            User     @relation(fields: [employee_email], references: [Email])
+  user            User     @relation("TicketOwner", fields: [employee_email], references: [Email])
+  assigned_to     String?
+  assigned_employee User?  @relation("TicketAssignee", fields: [assigned_to], references: [Email])
   pourpose        String
   created_At      DateTime @default(now())
   status          Status   @default(pending)
@@ -189,7 +194,9 @@ model LegalContract {
   contract_number String         @unique
   counterparty    String
   managed_by_email String
-  managedBy       User           @relation(fields: [managed_by_email], references: [Email])
+  managedBy       User           @relation("ContractManager", fields: [managed_by_email], references: [Email])
+  assigned_to     String?
+  assigned_employee User?        @relation("ContractAssignee", fields: [assigned_to], references: [Email])
   status          ContractStatus @default(active)
   expiry_date     DateTime?
   summary         String?
@@ -255,8 +262,10 @@ model ExpenseReview{
 model ExpenseClaim{
   id  Int  @id @default(autoincrement())
   claim_id  String @unique()
+  assigned_to String
+  assigned_employee  User @relation("ClaimAssignee",fields: [assigned_to], references:[Email])
   employee_email  String
-  employee  User @relation(fields: [employee_email], references:[Email])
+  employee  User @relation("ClaimOwner",fields: [employee_email], references:[Email])
   amount Decimal
   status  ClaimStatus @default(pending)
   submitted_at DateTime  @default(now())
