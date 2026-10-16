@@ -27,6 +27,11 @@ def route_after_reason(state:AgentState)-> str:
     return "end"
 
 
+def apply_conflict_policy(requires_human_review: bool, conflict_detected: bool) -> bool:
+    """Sources that disagree always need a human to confirm the answer."""
+    return requires_human_review or conflict_detected
+
+
 SQL_FUNCTION_DESCRIPTIONS = {
     "leave_balance": "the user's remaining leave/vacation days",
     "CTC_data": "the user's compensation/CTC figure",
@@ -320,6 +325,10 @@ Never invent a contract number or claim ID that is not explicitly present in the
                 f"the long term memory that need to be refered to answer is {long_term_memory}"
                 "Before calling a tool, write one sentence saying what you need and why. "
                 "Call one tool at a time and wait for its result before deciding the next step.\n\n"
+                "If the retrieved sources disagree about the same fact (e.g. two different numbers for "
+                "one policy), do not pick one silently: state BOTH versions and name the source of each. "
+                "For per-employee records (leave balance, CTC, claims, tickets), the SQL/tool result is the "
+                "authority and overrides conflicting document text; mention the document value only as policy context.\n\n"
                 f"Context:{context}"
             ))
             ] + state["messages"]
@@ -378,12 +387,15 @@ Never invent a contract number or claim ID that is not explicitly present in the
             answer_response,
             SystemMessage(content="""Given the conversation and the answer above, assess your confidence (0.0 to 1.0) "
             "and whether this requires human review before being shown to the user. "
-            "If the user explicitly asked for human review, set requires_human_review to true.""")
+            "If the user explicitly asked for human review, set requires_human_review to true. "
+            "Set conflict_detected to true if the answer reports that sources or records disagree about the same fact.""")
         ]
+        conflict_detected = False
         try:
             metadata = await structured_llm.ainvoke(metadata_messages)
             confidence = metadata.confidence
-            requires_human_review = metadata.requires_human_review
+            conflict_detected = metadata.conflict_detected
+            requires_human_review = apply_conflict_policy(metadata.requires_human_review, conflict_detected)
         except GroqAPIError:
             logger.exception(
                 "Groq confidence-metadata generation failed to parse for domain '%s'; "
@@ -398,7 +410,8 @@ Never invent a contract number or claim ID that is not explicitly present in the
             "sources": sources,
             "context": context_texts,
             "confidence":confidence,
-            "requires_human_review": requires_human_review
+            "requires_human_review": requires_human_review,
+            "conflict_detected": conflict_detected
 
         }
         return {

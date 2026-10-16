@@ -65,11 +65,13 @@ class AgentAnswer(BaseModel):
     confidence: float
     context: list[str]
     requires_human_review: bool = False
+    conflict_detected: bool = False
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class AgentAnswerLLM(BaseModel):
     confidence: float
     requires_human_review: bool = False
+    conflict_detected: bool = False
 
 
 class PausedForReviewResponse(BaseModel):
