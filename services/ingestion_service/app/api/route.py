@@ -6,8 +6,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
 from shared.contracts.schema import IngestionRequest, IngestionResponse
 from fastapi import APIRouter, Depends, HTTPException
 from ..core.security import verify_internal_secret
-from ..loader.encoder import load_document
-from ..pinecone.upsert import upsert_document
+from ..loader.encoder import load_document, assess_parse_quality
+from ..pinecone.upsert import upsert_document, doc_id_for_source
 from ..chunking.splitter  import split_documents
 from ..core.config import DATABASE_URL
 import asyncpg
@@ -24,15 +24,19 @@ router = APIRouter()
 
 async def ingest(req:IngestionRequest):
     try:
-        all_chunks=[]
-        
+        upserted = 0
+        new_chunks = []
+        doc_ids = set()
+        warnings: list[str] = []
+
         for source in req.source:
-            
+
             docs = load_document(
                 source = source.path,
                 source_type = source.type
             )
 
+            warnings.extend(f"{source.path.split('?')[0]}: {w}" for w in assess_parse_quality(docs, source.type))
             chunk = split_documents(docs)
             all_chunks.extend(chunk)
         tokenized_corpus = [doc.page_content.lower().split() for doc in all_chunks]
@@ -46,7 +50,8 @@ async def ingest(req:IngestionRequest):
         return IngestionResponse(
             chunks_created=upserted,
             namespace = req.namespace,
-            status = "success"
+            status = "success",
+            warnings = warnings
         )
     except Exception as e:
         raise HTTPException(

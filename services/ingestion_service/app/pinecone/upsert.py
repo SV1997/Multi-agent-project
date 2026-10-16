@@ -1,6 +1,11 @@
 from langchain_pinecone import PineconeVectorStore
+from pinecone import Pinecone
+import hashlib
 import os
 import sys
+from datetime import datetime, timezone
+from typing import Optional
+from urllib.parse import urlparse
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
 from shared.embeddings.embeddings import embeddings
 from langchain_core.documents import Document
@@ -9,7 +14,9 @@ import asyncpg
 
 def upsert_document(
         documents: list[Document],
-        namespace: str
+        namespace: str,
+        doc_id: Optional[str] = None,
+        effective_date: Optional[str] = None,
 ) -> int:
     PineconeVectorStore.from_documents(
         documents=documents,
