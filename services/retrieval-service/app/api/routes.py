@@ -15,13 +15,23 @@ from ..sql.sql_queries import (
 from ..sql.aggregate_queries import claims_by_status_for_team, leave_taken_by_month
 from ..pinecone.namespace_router import query_namespace
 import time
+import logging
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 @router.post("/query",
              response_model=RetrievalResponse,
              dependencies=[Depends(verify_internal_secret)])
 async def query(req:RetrievalQuery):
-    return await query_namespace(req)
+    try:
+        return await query_namespace(req)
+    except Exception:
+        logger.exception("query_namespace failed for namespace '%s'.", req.namespace)
+        return {
+            "results": [{"source": "error", "content": "Retrieval failed due to an internal error.", "score": 0.0, "metadata":{}}],
+            "namespace": req.namespace,
+            "query_time_ms": 0.0,
+        }
 
 @router.post("/sql_query",
              response_model=SQLRetrievalResponse,
@@ -45,7 +55,11 @@ async def sql_query(req:SQLRetrievalRequest):
             "content": "No SQL query handler exists for the selected query name.",
         }]
     else:
-        result = await handler(req)
+        try:
+            result = await handler(req)
+        except Exception:
+            logger.exception("SQL handler '%s' failed for namespace '%s'.", req.function, req.namespace)
+            result = [{"source": "sql:error", "content": "The lookup failed due to an internal error."}]
 
     return {
         "results": result,

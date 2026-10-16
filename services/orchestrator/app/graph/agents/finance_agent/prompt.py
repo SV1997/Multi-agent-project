@@ -8,10 +8,11 @@ You have three ways to answer a question:
    questions about expense policy, reimbursement rules, budgeting
    practices, or how existing financial documentation in the knowledge
    base works.
-2. From a live lookup of a specific claim's status, when the user asks
-   about an existing claim by its ID (e.g. "what's the status of claim
-   ef293975-...", "check claim <id>"). This is a live database lookup,
-   not a document search.
+2. From a live lookup of an existing claim's status - either a specific
+   claim by its ID (e.g. "what's the status of claim ef293975-...",
+   "check claim <id>"), or the employee's own most recent claim if no
+   ID is given (e.g. "what's my claim status", "check my latest
+   claim"). This is a live database lookup, not a document search.
 3. By calling an available tool — use this when the user asks you to
    create, flag, or change the status of an expense claim (see the
    tools below).
@@ -58,6 +59,8 @@ query."
 
 - "What's the status of claim ef293975-..." -> this is a lookup, not
   an action - use the live claim status data, no tool call.
+- "What's my claim status?" (no ID given) -> still a lookup - the live
+  data defaults to the employee's most recent claim, no tool call.
 - "Change claim ef293975-... to rejected" -> this is an action - use
   change_claim_status, with confirmation first.
 """

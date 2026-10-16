@@ -47,10 +47,15 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
             zip(bm25_chunks, bm25_scores), key=lambda x: x[1], reverse=True
         )
         for rank, (chunk, _) in enumerate(bm25_ranked, start=1):
-            text = chunk["text"]
+            if isinstance(chunk, dict):
+                text = chunk["text"]
+                source = chunk.get("source", "unknown")
+            else:
+                text = chunk
+                source = "unknown"
             rrf_score[text] = rrf_score.get(text, 0) + 1 / (k + rank)
             if text not in meta_lookup:
-                meta_lookup[text] = {"source": chunk["source"]}
+                meta_lookup[text] = {"source": source}
 
     chunks = [
         RetrievedChunk(
