@@ -9,5 +9,11 @@ dependencies = [
     "langchain-openai>=1.3.3",
     "langchain-pinecone>=0.2.13",
     "python-dotenv>=1.2.2",
+    "rank-bm25>=0.2.2",
     "uvicorn>=0.50.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyreadline3>=3.5.6",
 ]
