@@ -39,9 +39,19 @@ async def create_claim(amount: float, employee_email: str) -> str:
     claim_id = str(uuid.uuid4())
     conn = await get_connection()
     try:
+        reviewer = await conn.fetchrow(
+            '''SELECT "Email" FROM "User" WHERE role = 'finance_team'
+               ORDER BY (
+                   SELECT count(*) FROM "ExpenseClaim" c
+                   WHERE c.assigned_to = "User"."Email" AND c.status = 'pending'
+               )
+               LIMIT 1'''
+        )
+        if reviewer is None:
+            return "ERROR: no finance team member is available to assign this claim, so it was NOT created."
         await conn.execute(
-            'INSERT INTO "ExpenseClaim" (claim_id, employee_email, amount, status) VALUES ($1,$2,$3,$4)',
-            claim_id, employee_email, Decimal(str(amount)), "pending",
+            'INSERT INTO "ExpenseClaim" (claim_id, employee_email, amount, status, assigned_to) VALUES ($1,$2,$3,$4,$5)',
+            claim_id, employee_email, Decimal(str(amount)), "pending", reviewer["Email"]
         )
     except asyncpg.exceptions.ForeignKeyViolationError:
         return f"ERROR: no user found with email {employee_email!r}, so the claim was NOT created."
@@ -51,8 +61,9 @@ async def create_claim(amount: float, employee_email: str) -> str:
     return f"Claim {claim_id} has been created with status pending."
 
 CLAIM_STATUSES = {"pending", "flagged"}
+
 @tool(parse_docstring=True)
-async def change_claim_status(claim_id: str, status: str) -> str:
+async def change_claim_status(claim_id: str, status: str, email:str) -> str:
     """Set the status of an existing expense claim.
 
     This performs a real action, so use it ONLY when the user explicitly

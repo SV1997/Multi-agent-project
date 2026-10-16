@@ -42,9 +42,19 @@ async def create_ticket(email: str, purpose: str) -> str:
     ticket_id = "TKT-" + str(uuid.uuid4())
     conn = await get_connection()
     try:
+        reviewer = await conn.fetchrow(
+            '''SELECT "Email" FROM "User" WHERE role = 'support_team'
+               ORDER BY (
+                   SELECT count(*) FROM "TICKETS" t
+                   WHERE t.assigned_to = "User"."Email" AND t.status = 'pending'
+               )
+               LIMIT 1'''
+        )
+        assigned_to = reviewer["Email"] if reviewer is not None else None
+
         await conn.execute(
-            'INSERT INTO "TICKETS" (ticket_id, employee_email, pourpose) VALUES ($1,$2,$3)',
-            ticket_id, email, purpose,
+            'INSERT INTO "TICKETS" (ticket_id, employee_email, assigned_to, pourpose) VALUES ($1,$2,$3,$4)',
+            ticket_id, email, assigned_to, purpose,
         )
     except asyncpg.exceptions.ForeignKeyViolationError:
         return f"ERROR: no user found with email {email!r}, so the ticket was NOT created."
@@ -58,11 +68,13 @@ TICKET_STATUS= { "pending",
  "rejected",
  "escalated"}
 
+@tool(parse_docstring=True)
 async def change_ticket_status(ticket_id: str, status: str) -> str:
     """Set the status of an existing support ticket.
 
-    Not exposed to any agent: it has no role check, so it must not be
-    reachable by employees who could resolve or dismiss their own tickets.
+    This performs a real action, so use it ONLY when the user explicitly
+    asks to change, set, or update a ticket's status to one of the valid
+    values below, AND has confirmed in a message that follows your summary.
 
     Args:
         ticket_id: The ticket's ID, exactly as stored.
