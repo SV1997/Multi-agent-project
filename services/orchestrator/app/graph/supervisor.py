@@ -18,8 +18,9 @@ from .agents.finance_agent.graph import finance_agent
 from langgraph.checkpoint.memory import MemorySaver
 from .hitl.interrupts import human_review_gate
 import asyncio
-
-
+from .context_policy import split_for_summary,summarize, ledger_text, LEDGER_LABEL, guard_notes
+import os
+DISABLE_LONG_TERM_MEMORY = os.getenv("DISABLE_LONG_TERM_MEMORY") == "1"
 def set_supervisor_agent(checkpointer,store):
     class DomainClassification(BaseModel):
         domain: Literal["legal","hr","engineering","finance","support"] = Field(description="It provide routing detail for the tool base on the literal")
@@ -39,7 +40,6 @@ def set_supervisor_agent(checkpointer,store):
     # is the next thing to try, not a confirmed fix.
     classifier_llm = (
         init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0.2, streaming=False, reasoning_effort="low")
-        .with_structured_output(DomainClassification, method="function_calling")
         .with_config(tags=["classification-only"])
         .with_retry(stop_after_attempt=3)
     )
@@ -55,28 +55,25 @@ def set_supervisor_agent(checkpointer,store):
     )
 
     CLASSIFIER_HISTORY_WINDOW = 6
-    SUMMARIZE_THRESHOLD = 12
-    KEEP_RAW_TURNS = 5
     async def manage_context(state:AgentState)-> dict:
         messages = state["messages"]
-        human_turns = [m for m in messages if isinstance(m,HumanMessage)]
-        if len(human_turns)<= SUMMARIZE_THRESHOLD:
+        split=split_for_summary(messages)
+
+        if split is None:
             return {}
-
-        keep_from_human_turn = human_turns[-KEEP_RAW_TURNS]
-        cut_off_index = messages.index(keep_from_human_turn)
-        message_to_summarize = messages[:cut_off_index]
-        message_to_keep = messages[cut_off_index:]
-
-        summary = await summary_llm.ainvoke([
-            SystemMessage(content="you have a list of messages summarize them, preserve the key facts, names, decision and details, question keeped for review and unresolved querie "),
-            *message_to_summarize
-
-        ])
-
+        ledger, to_compress, to_remove= split
+        old_notes = ledger_text(ledger)if ledger else ""
+        new_notes = await summarize(summary_llm, old_notes, to_compress)
+        user_text = "\n".join(str(m.content) for m in to_compress if isinstance(m, HumanMessage))
+        new_notes, missing = guard_notes(old_notes + "\n" + user_text, new_notes)
+        logger.info("LEDGER cycle: %d human turns, %d chars\n%s",
+                    len([m for m in state["messages"] if isinstance(m, HumanMessage)]),
+                    len(new_notes), new_notes)
+        if missing:
+            logger.warning("Ledger guard recovered %d identifiers: %s", len(missing), missing)
         return {
-            "messages":[RemoveMessage(id=m.id) for m in message_to_summarize]+
-            [SystemMessage(content = f"[Earlier conversation ummary]: {summary.content}")]
+            "messages":[RemoveMessage(id=m.id) for m in to_remove]+
+            [SystemMessage(content = f"{LEDGER_LABEL} {new_notes}")]
         }
 
     def latest_human_query(state: AgentState) -> str:
@@ -132,6 +129,8 @@ def set_supervisor_agent(checkpointer,store):
 
 
     async def retrieve_memories(state:AgentState)->dict:
+        if DISABLE_LONG_TERM_MEMORY:
+            return {"long_term_memory": None}
         try:
             query = latest_human_query(state)
             print(query, 137)
@@ -166,11 +165,17 @@ def set_supervisor_agent(checkpointer,store):
             return False
         return True
 
-    async def classify_domain(state: AgentState)-> dict:
-        prompt = SUPERVISOR_ROUTE_PROMPT
+    DOMAINS = ["legal", "hr", "engineering", "finance", "support"]
 
+    async def classify_domain(state: AgentState)-> dict:
         clean_history = [m for m in state["messages"] if _is_clean_conversational_turn(m)]
-        messages = [SystemMessage(content=prompt)] + clean_history[-CLASSIFIER_HISTORY_WINDOW:]
+        messages = [
+            SystemMessage(content=(
+                "You are a classifier. Decide which single domain this query belongs "
+                "to. Answer with exactly one word - the domain name - chosen from: "
+                "legal, hr, engineering, finance, support."
+            ))
+        ] + clean_history[-CLASSIFIER_HISTORY_WINDOW:]
         try:
             decision = await classifier_llm.ainvoke(messages)
         except GroqAPIError:
@@ -184,10 +189,16 @@ def set_supervisor_agent(checkpointer,store):
             )
             return {"classification_failed": True}
 
-        print(decision.domain)
+        text = (decision.content or "").strip().lower()
+        domain = next((d for d in DOMAINS if d in text), None)
+        if domain is None:
+            logger.warning("Domain classification produced no recognizable domain: %r", text)
+            return {"classification_failed": True}
+
+        print(domain)
 
         return{
-            "domain": decision.domain,
+            "domain": domain,
             "classification_failed": False,
         }
 

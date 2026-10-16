@@ -39,10 +39,20 @@ async def create_contract(counterparty: str, summary: str, managed_by_email: str
     contract_number = "LC-" + str(uuid.uuid4())
     conn = await get_connection()
     try:
+        reviewer = await conn.fetchrow(
+            '''SELECT "Email" FROM "User" WHERE role = 'legal_team'
+               ORDER BY (
+                   SELECT count(*) FROM "LegalContract" c
+                   WHERE c.assigned_to = "User"."Email" AND c.status = 'under_review'
+               )
+               LIMIT 1'''
+        )
+        assigned_to = reviewer["Email"] if reviewer is not None else None
+
         await conn.execute('''INSERT INTO "LegalContract"
-        (contract_number, counterparty, managed_by_email, expiry_date, summary, "updatedAt")
-        VALUES ($1, $2,$3,$4,$5,$6)
-        ''', contract_number, counterparty, managed_by_email, parsed_expiry, summary, datetime.now())
+        (contract_number, counterparty, managed_by_email, assigned_to, expiry_date, summary, "updatedAt")
+        VALUES ($1, $2,$3,$4,$5,$6,$7)
+        ''', contract_number, counterparty, managed_by_email, assigned_to, parsed_expiry, summary, datetime.now())
 
     except asyncpg.exceptions.ForeignKeyViolationError:
         return f"ERROR: no user found with email {managed_by_email!r}, so the contract was NOT created."

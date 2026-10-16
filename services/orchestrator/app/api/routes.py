@@ -168,6 +168,7 @@ async def orchatrator_query(req:OrchestratorRequest):
             "context": [chunk.get("content", "") for chunk in result["retrieved_context"]],
             "confidence":result["final_answer"]["confidence"],
             "requires_human_review": result["requires_human_review"],
+            "conflict_detected": result["final_answer"].get("conflict_detected", False),
             "generated_at": datetime.now()
         }
         return final_res
@@ -196,6 +197,7 @@ async def resume_query(req: RequestResume):
             "context": [chunk.get("content", "") for chunk in result["retrieved_context"]],
             "confidence": result["final_answer"]["confidence"],
             "requires_human_review": result["requires_human_review"],
+            "conflict_detected": result["final_answer"].get("conflict_detected", False),
             "generated_at": datetime.now()
         }
     except Exception:

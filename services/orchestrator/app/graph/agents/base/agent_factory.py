@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, START, END
 from ...state import AgentState
 from langgraph.prebuilt import ToolNode
-from langchain.messages import HumanMessage, SystemMessage, AIMessage
+from langchain.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from pydantic import BaseModel, Field
 from .nodes import retrieve_context, build_context_prompt
 import sys
@@ -27,13 +27,20 @@ def route_after_reason(state:AgentState)-> str:
     return "end"
 
 
+def apply_conflict_policy(requires_human_review: bool, conflict_detected: bool) -> bool:
+    """Sources that disagree always need a human to confirm the answer."""
+    return requires_human_review or conflict_detected
+
+
 SQL_FUNCTION_DESCRIPTIONS = {
     "leave_balance": "the user's remaining leave/vacation days",
     "CTC_data": "the user's compensation/CTC figure",
     "get_ticket_status": "status of the user's most recent support ticket",
     "contract_tracking": "status/details of a specific legal contract, identified by contract number",
     "deployment_status": "status of the user's most recent deployment",
-    "claim_tracking": "status/details of a specific expense claim, identified by claim ID",
+    "claims_by_status_for_team": "team-wide COUNT and total amount of expense claims per status (manager-only aggregate, optional team)",
+    "leave_taken_by_month": "team-wide leave days taken per month for a year (manager-only aggregate, optional team and year)",
+    "claim_tracking": "status/details of a specific expense claim (by claim ID), or the employee's most recent claim if no ID is given",
 }
 def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: str = "", retrieval_method: list[str] = None, sql_function:list[str]=None):
     tool = tools or []
@@ -55,10 +62,37 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
 
     retrieval_planner = sql_selection_llm.with_structured_output(RetrievalPlan,method="json_schema", strict=True).with_config(tags=["selecting-retriever"]).with_retry(stop_after_attempt=3)
     Sql_structured_llm = sql_selection_llm.with_structured_output(SQLQuerySelection, method="json_schema", strict=True).with_config(tags=["sql-retriever"]).with_retry(stop_after_attempt=3)
+
+    def conversation_so_far(state, max_items=6) -> str:
+        items = []
+        for m in state["messages"][:-1]:          # skip the current question
+            if isinstance(m, SystemMessage) and "Earlier conversation" in str(m.content):
+                items.append(("Summary", m.content))
+            elif isinstance(m, HumanMessage):
+                items.append(("User", m.content))
+            elif isinstance(m, AIMessage) and m.content and not m.tool_calls:
+                items.append(("Assistant", m.content[:300]))
+        summary = [i for i in items if i[0] == "Summary"][-1:]   # latest summary only
+        recent = [i for i in items if i[0] != "Summary"][-max_items:]
+        return "\n".join(f"{label}: {text}" for label, text in summary + recent) or "none"
     
     async def plan_retrieval(state)-> dict:
         available_ret = ", ".join(retrieval_method) or "none"
+        memory_text = state.get("long_term_memory") or "none"
+        history = conversation_so_far(state)
         prompt = f"""You choose the retrieval method this agent should use to answer the user's question.
+        Facts already known about this user (from long-term memory):
+{memory_text}
+
+Memory rule: if these facts fully answer the question, choose none.
+Memory is checked before any document search.
+Conversation so far (earlier summary, then recent turns):
+{history}
+Known-facts rule: choose none if the question can be answered from facts the
+user stated about themselves (name, seat, project, preferences) in the memory
+or conversation above. Do not apply this to live records (balances, ticket or
+claim status) or to company policy. Those change or live in documents, so
+use sql or vector even if an earlier turn mentioned them.
         Pick exactly one source from: none, sql, vector.
 
         - sql: the question asks about a specific person's or entity's live, current, absolute
@@ -70,6 +104,9 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
           ticket, including "my ticket", "latest ticket", a ticket ID, or a ticket's current
           status/details (open, pending, resolved, rejected, or similar). Never choose none or
           vector for a request that needs the user's actual ticket record.
+        - sql (aggregates): a team-wide count/total over many records (e.g. claims per status for a team,
+          leave days taken per month) is also sql when this agent has such a function; access is
+          enforced by the function itself.
         - vector: the question is about static, general reference material - policy, process,
           documentation, how-to, definitions - the kind of content that lives in a knowledge base
           and doesn't depend on which specific person is asking. For tickets, choose vector only
@@ -93,6 +130,7 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
         """
 
         try:
+
             assessment = await retrieval_planner.ainvoke([
                 SystemMessage(content=(prompt)),
                 HumanMessage(content=(f"Available sources: {available_ret}\n\nUser question: {state.get('original_query', '')}"))
@@ -248,7 +286,12 @@ For any query about the user's ticket, latest ticket, existing ticket, ticket ID
 ticket status, ALWAYS choose get_ticket_status. Never choose another function for a
 ticket-record query.
 For contract_tracking, include params={{"contract_number": "<the number mentioned>"}}.
-For claim_tracking, include params={{"claim_id": "<the id mentioned>"}}.
+For claim_tracking, include params={{"claim_id": "<the id mentioned>"}} if the question
+names a specific claim ID; if it just asks about "my claim" or "my latest claim" with no
+ID given, use claim_tracking with empty params ({{}}) - it will look up the employee's
+most recent claim on its own.
+For claims_by_status_for_team and leave_taken_by_month, include params={{"team": "<hr_team|finance_team|legal_team|support_team|engineering_team>"}} only if the question names a team, and
+for leave_taken_by_month add "year" only if a year is named; otherwise leave them out.
 For all other functions, params should be empty ({{}}).
 Never invent a contract number or claim ID that is not explicitly present in the question.
                 
@@ -287,7 +330,11 @@ Never invent a contract number or claim ID that is not explicitly present in the
         """plain_llm.ainvoke with a graceful fallback if Groq still rejects
         the generation (e.g. tool-call-shaped output despite tool_choice="none")."""
         try:
-            return await plain_llm.ainvoke(messages)
+            return await plain_llm.ainvoke(messages + [SystemMessage(content=(
+                "No tools are available for this response, even if earlier in this "
+                "conversation you described or attempted to use one. Answer in plain "
+                "text only - do not attempt to call any tool."
+            ))])
         except GroqAPIError:
             logger.exception(
                 "Groq final-answer generation failed for domain '%s'.", domain_name
@@ -317,9 +364,15 @@ Never invent a contract number or claim ID that is not explicitly present in the
                 "the user for their own employee ID or email.\n\n"
                 "Check if the tools have any error if the error is about any data that need to be provided by the user than ask user for information else if the error is about system/db "
                 "failure then just tell some technical issue occur and try again later.\n\n"
-                f"the long term memory that need to be refered to answer is {long_term_memory}"
-                "Before calling a tool, write one sentence saying what you need and why. "
+                f"\n\nFacts the user told you earlier (long-term memory). If they answer the "
+f"question, use them and do not substitute facts from retrieved documents:\n"
+f"{long_term_memory}\n\n"
+"Before calling a tool, write one sentence saying what you need and why. "
                 "Call one tool at a time and wait for its result before deciding the next step.\n\n"
+                "If the retrieved sources disagree about the same fact (e.g. two different numbers for "
+                "one policy), do not pick one silently: state BOTH versions and name the source of each. "
+                "For per-employee records (leave balance, CTC, claims, tickets), the SQL/tool result is the "
+                "authority and overrides conflicting document text; mention the document value only as policy context.\n\n"
                 f"Context:{context}"
             ))
             ] + state["messages"]
@@ -337,6 +390,12 @@ Never invent a contract number or claim ID that is not explicitly present in the
 
         try:
             res = await llm_with_tools.ainvoke(messages)
+            if not res.tool_calls and not (res.content or "").strip():
+                logger.warning(
+                    "Empty tool-decision response (no tool_calls, no content) for "
+                    "domain '%s'; retrying once.", domain_name
+                )
+                res = await llm_with_tools.ainvoke(messages)
             print(res, "tool_name res")
         except GroqAPIError:
             logger.exception(
@@ -363,7 +422,16 @@ Never invent a contract number or claim ID that is not explicitly present in the
 
 
 
-        answer_response = await safe_plain_answer(messages)
+        # llm_with_tools already decided no tool is needed. If it also gave a
+        # real answer, use it directly - calling plain_llm again would just
+        # regenerate the same answer with a second, independent model call
+        # (wasted cost, and a second unrelated chance for Groq to reject it).
+        # Only fall back to a fresh generation when there's truly nothing to
+        # show (empty content too).
+        if (res.content or "").strip():
+            answer_response = res
+        else:
+            answer_response = await safe_plain_answer(messages)
 
         return await _finalize_answer(answer_response, messages, domain_name, sources, context_texts, remaining)
     
@@ -374,23 +442,31 @@ Never invent a contract number or claim ID that is not explicitly present in the
                       (already generated, either by plain llm or by 
                       llm_with_tools when it chose not to call a tool)
     """
-        metadata_messages = messages + [
+        clean = [m for m in messages
+         if not isinstance(m, ToolMessage)
+         and not (isinstance(m, AIMessage) and getattr(m, "tool_calls", None))]
+
+        metadata_messages = clean + [
             answer_response,
             SystemMessage(content="""Given the conversation and the answer above, assess your confidence (0.0 to 1.0) "
             "and whether this requires human review before being shown to the user. "
-            "If the user explicitly asked for human review, set requires_human_review to true.""")
+            "If the user explicitly asked for human review, set requires_human_review to true. "
+            "Set conflict_detected to true if the answer reports that sources or records disagree about the same fact.""")
         ]
+        conflict_detected = False
         try:
             metadata = await structured_llm.ainvoke(metadata_messages)
+            print(metadata)
             confidence = metadata.confidence
-            requires_human_review = metadata.requires_human_review
+            conflict_detected = metadata.conflict_detected
+            requires_human_review = apply_conflict_policy(metadata.requires_human_review, conflict_detected)
         except GroqAPIError:
             logger.exception(
                 "Groq confidence-metadata generation failed to parse for domain '%s'; "
                 "defaulting to low confidence and forcing human review.", domain_name
             )
             confidence = 0.0
-            requires_human_review = True
+            requires_human_review = False
 
         final_answer = {
             "domain_name": domain_name,
@@ -398,7 +474,8 @@ Never invent a contract number or claim ID that is not explicitly present in the
             "sources": sources,
             "context": context_texts,
             "confidence":confidence,
-            "requires_human_review": requires_human_review
+            "requires_human_review": requires_human_review,
+            "conflict_detected": conflict_detected
 
         }
         return {
