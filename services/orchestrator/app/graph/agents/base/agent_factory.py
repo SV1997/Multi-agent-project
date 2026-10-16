@@ -38,6 +38,8 @@ SQL_FUNCTION_DESCRIPTIONS = {
     "get_ticket_status": "status of the user's most recent support ticket",
     "contract_tracking": "status/details of a specific legal contract, identified by contract number",
     "deployment_status": "status of the user's most recent deployment",
+    "claims_by_status_for_team": "team-wide COUNT and total amount of expense claims per status (manager-only aggregate, optional team)",
+    "leave_taken_by_month": "team-wide leave days taken per month for a year (manager-only aggregate, optional team and year)",
     "claim_tracking": "status/details of a specific expense claim, identified by claim ID",
 }
 def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: str = "", retrieval_method: list[str] = None, sql_function:list[str]=None):
@@ -75,6 +77,9 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
           ticket, including "my ticket", "latest ticket", a ticket ID, or a ticket's current
           status/details (open, pending, resolved, rejected, or similar). Never choose none or
           vector for a request that needs the user's actual ticket record.
+        - sql (aggregates): a team-wide count/total over many records (e.g. claims per status for a team,
+          leave days taken per month) is also sql when this agent has such a function; access is
+          enforced by the function itself.
         - vector: the question is about static, general reference material - policy, process,
           documentation, how-to, definitions - the kind of content that lives in a knowledge base
           and doesn't depend on which specific person is asking. For tickets, choose vector only
@@ -254,6 +259,8 @@ ticket status, ALWAYS choose get_ticket_status. Never choose another function fo
 ticket-record query.
 For contract_tracking, include params={{"contract_number": "<the number mentioned>"}}.
 For claim_tracking, include params={{"claim_id": "<the id mentioned>"}}.
+For claims_by_status_for_team and leave_taken_by_month, include params={{"team": "<hr_team|finance_team|legal_team|support_team|engineering_team>"}} only if the question names a team, and
+for leave_taken_by_month add "year" only if a year is named; otherwise leave them out.
 For all other functions, params should be empty ({{}}).
 Never invent a contract number or claim ID that is not explicitly present in the question.
                 

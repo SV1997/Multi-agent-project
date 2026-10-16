@@ -11,5 +11,5 @@ hr_agent = build_domain_agent(
     tools=[submit_leave_request],
     domain_name="hr",
     retrieval_method=["sql", "vector"],
-    sql_function=["leave_balance", "CTC_data"]
+    sql_function=["leave_balance", "CTC_data", "leave_taken_by_month"]
 )
