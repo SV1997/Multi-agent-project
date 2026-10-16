@@ -42,6 +42,8 @@ class SQLRetrievalRequest(BaseModel):
 class SourceItem(BaseModel):
     path:str
     type: Literal["pdf","url", "markdown"]
+    doc_id: Optional[str] = None  # stable document identity; derived from path when omitted
+    effective_date: Optional[str] = None  # ISO date the document content takes effect
 
 class IngestionRequest(BaseModel):
     namespace: Literal["legal", "hr", "engineering", "finance", "support"]
