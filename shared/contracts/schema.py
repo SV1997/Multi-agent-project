@@ -54,6 +54,7 @@ class IngestionResponse(BaseModel):
     chunks_created: int
     namespace: str
     status: Literal["success", "partial", "failed"]
+    warnings: list[str] = Field(default_factory=list)
 
 
 # ---- Agent output contract (used by ALL domain agents) ----
