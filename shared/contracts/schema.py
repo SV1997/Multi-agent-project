@@ -42,6 +42,8 @@ class SQLRetrievalRequest(BaseModel):
 class SourceItem(BaseModel):
     path:str
     type: Literal["pdf","url", "markdown"]
+    doc_id: Optional[str] = None  # stable document identity; derived from path when omitted
+    effective_date: Optional[str] = None  # ISO date the document content takes effect
 
 class IngestionRequest(BaseModel):
     namespace: Literal["legal", "hr", "engineering", "finance", "support"]
@@ -52,6 +54,7 @@ class IngestionResponse(BaseModel):
     chunks_created: int
     namespace: str
     status: Literal["success", "partial", "failed"]
+    warnings: list[str] = Field(default_factory=list)
 
 
 # ---- Agent output contract (used by ALL domain agents) ----
@@ -63,11 +66,13 @@ class AgentAnswer(BaseModel):
     confidence: float
     context: list[str]
     requires_human_review: bool = False
+    conflict_detected: bool = False
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class AgentAnswerLLM(BaseModel):
     confidence: float
     requires_human_review: bool = False
+    conflict_detected: bool = False
 
 
 class PausedForReviewResponse(BaseModel):
@@ -91,7 +96,7 @@ class RewrittenQuery(BaseModel):
     search_query: str = Field(description="A concise semantic-search query preserving important names, IDs, dates, and constraints.")
 
 class SQLQuerySelection(BaseModel):
-    query_name: Literal["leave_balance","CTC_data","get_ticket_status","contract_tracking","deployment_status","claim_tracking"]
+    query_name: Literal["leave_balance","CTC_data","get_ticket_status","contract_tracking","deployment_status","claim_tracking","claims_by_status_for_team","leave_taken_by_month"]
     reason: str = Field(description="give reason to choose the particulat method for the query")
     params: dict[str, str] = Field(
         default_factory=dict,
