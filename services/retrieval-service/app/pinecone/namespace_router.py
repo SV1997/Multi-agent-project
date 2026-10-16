@@ -5,11 +5,16 @@ import time
 from langchain_pinecone import PineconeVectorStore
 from shared.embeddings.embeddings import embeddings
 from shared.contracts.schema import RetrievalQuery, RetrievalResponse, RetrievedChunk
+from ..core import config as cfg
 from ..core.config import PINECONE_INDEX_NAME
+from .reranker import rerank
+import asyncio
 from ..storage.bm25score import load_bm25
 
 async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
     start = time.time()
+    # With re-ranking on, fuse a wider candidate pool, then let the cross-encoder pick top_k.
+    candidates = max(cfg.RERANK_CANDIDATES, req.top_k) if cfg.RERANK_ENABLED else req.top_k
 
     vector_store = PineconeVectorStore(
         embedding=embeddings,
@@ -19,7 +24,7 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
 
     results = vector_store.similarity_search_with_score(
         query= req.query,
-        k=req.top_k
+        k=candidates
     )
 
     bm25_data = await load_bm25(req.namespace)
@@ -56,7 +61,11 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
         ) for text, score in rrf_score.items()
     ]
     chunks.sort(key=lambda c: c.score, reverse=True)
-    chunks = chunks[: req.top_k]
+    chunks = chunks[:candidates]
+    if cfg.RERANK_ENABLED:
+        chunks = await asyncio.to_thread(rerank, req.query, chunks, req.top_k)
+    else:
+        chunks = chunks[: req.top_k]
 
     print(chunks)
 

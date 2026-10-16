@@ -47,7 +47,7 @@ MAX_TABLE_LINE_SHARE = 0.3
 MAX_PAGE_WARNINGS = 5
 
 def _is_table_like(line: str) -> bool:
-    return line.count("|") >= 2 or line.count("	") >= 2 or len(re.findall(r"\S {2,}\S", line)) >= 2
+    return line.count("|") >= 2 or line.count("\t") >= 2 or len(re.findall(r"\S {2,}\S", line)) >= 2
 
 def assess_parse_quality(docs: list[Document], source_type: str) -> list[str]:
     """Flag (never fix) signs of a poor parse: empty pages, thin text, table-heavy content."""
