@@ -92,15 +92,21 @@ async def deployment_status(req:SQLRetrievalRequest):
 async def claim_tracking(req:SQLRetrievalRequest):
        conn = await get_connection()
        try:
-              claim_id = req.data.get('claim_id')
-              if claim_id is None:
-                     return [{"source":"sql:claim_tracking", "content":"Please provide a claim ID"}]
-              row = await conn.fetchrow(
-                     'SELECT * FROM "ExpenseClaim" WHERE claim_id=$1 AND employee_email=$2',
-                     claim_id, req.employee_email
-              )
-              if row is None:
-                     return [{"source":"sql:claim_tracking", "content":"No claim is available for this claim id"}]
+              claim_id = (req.data or {}).get('claim_id')
+              if claim_id:
+                     row = await conn.fetchrow(
+                            'SELECT * FROM "ExpenseClaim" WHERE claim_id=$1 AND employee_email=$2',
+                            claim_id, req.employee_email
+                     )
+                     if row is None:
+                            return [{"source":"sql:claim_tracking", "content":"No claim is available for this claim id"}]
+              else:
+                     row = await conn.fetchrow(
+                            'SELECT * FROM "ExpenseClaim" WHERE employee_email=$1 ORDER BY submitted_at DESC LIMIT 1',
+                            req.employee_email
+                     )
+                     if row is None:
+                            return [{"source":"sql:claim_tracking", "content":"No claim is available for this employee"}]
               return [{"source":"sql:claim_tracking", "content":f"Claim {row['claim_id']} status is {row['status']}"}]
        finally:
               await conn.close()
