@@ -19,16 +19,17 @@ type SourceItem = {
 const ROLE_NAMESPACE_ACCESS: Record<string, string[]> = {
     legal_team: ["legal"],
     hr_team: ["hr"],
-    engineering_team: ["engineering", "coding"],
+    engineering_team: ["engineering"],
     support_team: ["support"],
-    admin: ["legal", "hr", "engineering", "coding", "support"],
+    finance_team: ["finance"],
+    admin: ["legal", "hr", "engineering", "finance", "support"],
 };
 
 const NAMESPACE_LABELS: Record<string, string> = {
     legal: "Legal",
     hr: "HR",
     engineering: "Engineering",
-    coding: "Coding",
+    finance: "Finance",
     support: "Support",
 };
 

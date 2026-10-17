@@ -13,7 +13,7 @@ export default function ChatComposer({ input, onInputChange, onSend, isBusy, loa
   const disabled = isBusy || !input.trim() || loadingMessages;
 
   return (
-    <div style={{ padding: "16px 28px 22px", borderTop: `1px solid ${COLORS.hairline}` }}>
+    <div className="sb-composer" style={{ padding: "16px 28px 22px", borderTop: `1px solid ${COLORS.hairline}` }}>
       <div
         style={{
           maxWidth: 720,
@@ -38,7 +38,7 @@ export default function ChatComposer({ input, onInputChange, onSend, isBusy, loa
             }
           }}
           disabled={loadingMessages}
-          placeholder="Ask Legal, HR, Engineering, Coding, or Support…"
+          placeholder="Ask Legal, HR, Engineering, Finance, or Support…"
           rows={1}
           style={{
             flex: 1,

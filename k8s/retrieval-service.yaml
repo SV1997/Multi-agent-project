@@ -1,20 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: retieval-service
+  name: retrieval-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: retieval-service
+      app: retrieval-service
   template:
     metadata:
       labels:
         app: retrieval-service
     spec:
+      imagePullSecrets:            # ← imagePullSecrets goes HERE
+        - name: ecr-secret
       containers:
         - name: retrieval-service
-          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/retrieval-service:latest
+          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/retrieval-service:4178fb73ec695c0bf7af570eb9ab2d1b582980da
           ports:
             - containerPort: 8001
           envFrom:
@@ -23,7 +25,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metdata:
+metadata:
   name: retrieval-service
 spec:
   selector:
