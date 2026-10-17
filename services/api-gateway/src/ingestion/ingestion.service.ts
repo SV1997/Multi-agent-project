@@ -9,7 +9,7 @@ import { InternalServerErrorException } from '@nestjs/common';
 import { IngestionDto, UploadIngestionDto } from './Dto/Ingestion.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { StorageService } from 'src/storage/storage.service';
-
+import { createHash } from 'crypto'
 @Injectable()
 export class IngestionService {
     private readonly logger = new Logger(IngestionService.name);
@@ -85,25 +85,27 @@ export class IngestionService {
             
         return {data:res.data, success:true}
     }
+    
+
     async uploadFile(uploadIngestionDto: UploadIngestionDto, files: Express.Multer.File[], role: string, sub: number) {
     const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || []
     if (!allowedNamespaces.includes(uploadIngestionDto.namespace)) {
         throw new ForbiddenException(`you are not allowed to ingest in the ${uploadIngestionDto.namespace} namespace`)
     }
-
+    const docIdFor = (namespace: string, originalName: string) =>
+    createHash('sha1').update(`${namespace}/${originalName.trim().toLowerCase()}`).digest('hex').slice(0, 16)
     const uploaded = await Promise.all(files.map(async (file) => {
         const fileName = `${crypto.randomUUID()}-${file.originalname}`
         const key = await this.storageService.uploadFile(file.buffer, fileName)
         const url = await this.storageService.getPresignedUrl(key)
-        return { key, url, type: uploadIngestionDto.type }
+        return { key, url, type: uploadIngestionDto.type, doc_id: docIdFor(uploadIngestionDto.namespace, file.originalname) }
     }))
 
     const ingestionUrl = this.configService.get<string>('INGESTION_URL') || "";
     const keys = uploaded.map(u => {return{path:u.key, type:u.type}})
-
     const res = await firstValueFrom(this.httpService.post(ingestionUrl, {
         namespace: uploadIngestionDto.namespace,
-        source: uploaded.map(u => ({ path: u.url, type: u.type }))
+        source: uploaded.map(u => ({ path: u.url, type: u.type, doc_id: u.doc_id }))
     }, {
         headers: { 'x-internal-secret': this.configService.get<string>('INTERNAL_SECRET') },
     }).pipe(
