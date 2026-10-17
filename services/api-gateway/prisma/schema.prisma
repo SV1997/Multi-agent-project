@@ -231,6 +231,27 @@ model BM25Index {
   @@map("bm25_indexes")
 }
 
+model DocExtraction {
+  id             Int      @id @default(autoincrement())
+  doc_id         String
+  version        Int
+  namespace      String
+  source         String
+  counterparty   String?
+  expiry_date    DateTime? @db.Date
+  value          Decimal?  @db.Decimal(18, 2)
+  currency       String?
+  auto_renews    Boolean?
+  needs_review   Boolean  @default(false)
+  review_reasons String[]
+  details        Json
+  extracted_at   DateTime @default(now())
+
+  @@unique([doc_id, version])
+  @@index([namespace, expiry_date])
+  @@map("doc_extractions")
+}
+
 model LeaveRecord{
   id Int @id @default(autoincrement())
   leave_applied_by String

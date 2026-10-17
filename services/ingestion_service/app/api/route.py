@@ -1,5 +1,6 @@
 import sys
 import os
+import asyncio
 import pickle
 from datetime import datetime, timezone
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
@@ -9,6 +10,7 @@ from ..core.security import verify_internal_secret
 from ..loader.encoder import load_document, assess_parse_quality
 from ..pinecone.upsert import upsert_document, doc_id_for_source
 from ..chunking.splitter  import split_documents
+from ..extraction.contracts import document_text, extract_contract, save_extraction
 from ..core.config import DATABASE_URL
 import asyncpg
 from rank_bm25 import BM25Okapi
@@ -41,6 +43,8 @@ async def ingest(req:IngestionRequest):
             doc_id = source.doc_id or doc_id_for_source(source.path)
             upserted += upsert_document(chunk, req.namespace, doc_id, source.effective_date)
             doc_ids.add(doc_id)
+            if req.namespace == "legal" and chunk:
+                warnings.extend(await extract_and_store(docs, doc_id, chunk[0].metadata.get("version", 1), source.path))
             seen_texts = set()
             for doc in chunk:
                 if doc.page_content not in seen_texts:
@@ -71,6 +75,21 @@ async def ingest(req:IngestionRequest):
             status_code=500,
             detail=f"Ingestion failed: {str(e)}"
         )
+
+async def extract_and_store(docs, doc_id: str, version: int, path: str) -> list[str]:
+    """Structured contract extraction. Never fails the ingestion; problems come back as warnings."""
+    label = path.split('?')[0]
+    try:
+        text = document_text(docs)
+        extraction = await asyncio.to_thread(extract_contract, text)
+        conn = await get_connection()
+        try:
+            await save_extraction(conn, doc_id, int(version), "legal", label, extraction)
+        finally:
+            await conn.close()
+        return [f"{label}: extraction needs review - {r}" for r in extraction.review_reasons]
+    except Exception as e:
+        return [f"{label}: contract extraction failed - {e}"]
 
 async def load_bm25_index(namespace: str):
     conn = await get_connection()
