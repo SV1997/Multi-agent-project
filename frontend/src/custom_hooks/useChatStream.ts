@@ -1,13 +1,25 @@
 import { useState, useCallback } from 'react';
 import ApiObj from '../common/ApiObj';
-
 interface StreamState {
   currentStage: string | null;
   toolCalls: string[];
   answerText: string;
   isStreaming: boolean;
   pausedReview: any | null;
+  error: boolean;
+  reactSteps: ReactStep[];
 }
+
+export interface ReactStep{
+  step:number;
+  thought: string;
+  action: {tool: string; args:Record<string,unknown>};
+  call_id: string;
+  observation: string | null;
+  budget_left: number;
+}
+
+
 
 export function useChatStream() {
   const [state, setState] = useState<StreamState>({
@@ -16,10 +28,12 @@ export function useChatStream() {
     answerText: '',
     isStreaming: false,
     pausedReview: null,
+    error: false,
+    reactSteps: []
   });
 
   const sendQuery = useCallback(async (query: string, sessionId: string, turnId: string) => {
-    setState({ currentStage: null, toolCalls: [], answerText: '', isStreaming: true, pausedReview: null });
+    setState({ reactSteps: [],currentStage: null, toolCalls: [], answerText: '', isStreaming: true, pausedReview: null, error: false });
 
     const response = await fetch(import.meta.env.VITE_BASE_URL + ApiObj.query.QUERY_STREAM, {
       method: 'POST',
@@ -57,6 +71,11 @@ export function useChatStream() {
       }
       console.log(parsed);
       
+      if(parsed.type === 'error'){
+        setState((prev)=>({...prev, error: true, answerText: parsed.message}))
+        return;
+      }
+
       if (parsed.node_name) {
         setState((prev) => ({ ...prev, currentStage: parsed.node_name }));
         return;
@@ -67,11 +86,30 @@ export function useChatStream() {
         return;
       }
 
+
+
       if (parsed.token) {
         setState((prev) => ({ ...prev, answerText: prev.answerText + parsed.token }));
         return;
       }
-        
+      
+      if(parsed.react_step){
+        setState((prev) => ({ ...prev, reactSteps:[...prev.reactSteps,parsed.react_step] }));
+        return;
+      }
+
+      if(parsed.observation){
+        setState((prev)=>{
+          return {
+            ...prev,
+            reactSteps: prev.reactSteps.map((s)=>
+            s.call_id== parsed.observation.call_id?
+            {...s, observation: parsed.observation.observation}:s
+            )
+          }
+        })
+        return;
+      }
 
       if (parsed.status === 'paused_for_review') {
         console.log(parsed.status, parsed.status === 'paused_for_review');

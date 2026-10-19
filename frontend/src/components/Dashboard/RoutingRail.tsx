@@ -1,4 +1,4 @@
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, X } from "lucide-react";
 import { COLORS, STAGES } from "./constants";
 import type { Agent } from "./types";
 
@@ -7,11 +7,14 @@ type RoutingRailProps = {
   isBusy: boolean;
   activeAgent: Agent | null;
   sources: number;
+  className?: string;
+  onClose?: () => void;
 };
 
-export default function RoutingRail({ stageIndex, isBusy, activeAgent, sources }: RoutingRailProps) {
+export default function RoutingRail({ stageIndex, isBusy, activeAgent, sources, className, onClose }: RoutingRailProps) {
   return (
     <div
+      className={className}
       style={{
         width: 280,
         flexShrink: 0,
@@ -23,6 +26,9 @@ export default function RoutingRail({ stageIndex, isBusy, activeAgent, sources }
     >
       <div
         style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
           fontFamily: "'IBM Plex Mono', monospace",
           fontSize: 10,
           color: COLORS.faint,
@@ -31,6 +37,16 @@ export default function RoutingRail({ stageIndex, isBusy, activeAgent, sources }
         }}
       >
         ROUTING
+        {onClose && (
+          <button
+            className="sb-mobile-toggle sb-panel-close"
+            onClick={onClose}
+            aria-label="Close routing status"
+            style={{ background: "transparent", border: "none", cursor: "pointer" }}
+          >
+            <X size={18} color={COLORS.muted} />
+          </button>
+        )}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
