@@ -38,7 +38,7 @@ export default function ChatComposer({ input, onInputChange, onSend, isBusy, loa
             }
           }}
           disabled={loadingMessages}
-          placeholder="Ask Legal, HR, Engineering, Coding, or Support…"
+          placeholder="Ask Legal, HR, Engineering, Finance, or Support…"
           rows={1}
           style={{
             flex: 1,

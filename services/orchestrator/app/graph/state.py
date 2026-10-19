@@ -3,7 +3,7 @@ from langgraph.graph.message import add_messages
 
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
-    domain: Literal["hr", "legal", "engineering", "coding", "support"] |None
+    domain: Literal["hr", "legal", "engineering", "finance", "support"] |None
     retrieved_context: list[dict]
     tool_calls_remaining: int
     final_answer: dict| None
@@ -26,3 +26,4 @@ class AgentState(TypedDict):
     fallback_used: bool | None
     employee_email:str
     long_term_memory: str | None
+    react_trace: list[dict]

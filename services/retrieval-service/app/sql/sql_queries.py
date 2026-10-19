@@ -27,12 +27,12 @@ async def CTC_data(req:SQLRetrievalRequest):
       conn = await get_connection()
       try:
             row = await conn.fetchrow(
-                  'SELECT CTC FROM "EmployeeData" WHERE employee_email = $1 ',
+                  'SELECT employee_email, ctc FROM "EmployeeData" WHERE employee_email = $1',
                   req.employee_email
             )
             if row is None:
                   return [{"source":"sql:CTC_data", "content":"No ctc data available for employee"}]
-            return [{"source":"sql:CTC_data", "content":f"{row["employee_email"]} has {row['ctc']}"}]
+            return [{"source":"sql:CTC_data", "content":f"{row['employee_email']} has {row['ctc']}"}]
       finally:
               await conn.close()
 
@@ -43,7 +43,6 @@ async def get_ticket_status(req:SQLRetrievalRequest):
                   'SELECT * FROM "TICKETS" WHERE employee_email = $1 ORDER BY "created_At" DESC LIMIT 1',
                   req.employee_email
             )
-            print(row, f"Latest ticket {row['ticket_id']} for {row['employee_email']}")
             if row is None:
                   return [{"source":"sql:ticket_status", "content":"No ticket is available for employee"}]
             return [{
@@ -89,3 +88,25 @@ async def deployment_status(req:SQLRetrievalRequest):
                   return [{"source":"sql:deployment_status", "content":f"{row["service_name"]} status is {row["status"]} deployed at {[row["deployed_at"]]}"}]
       finally:
                     await conn.close()
+
+async def claim_tracking(req:SQLRetrievalRequest):
+       conn = await get_connection()
+       try:
+              claim_id = (req.data or {}).get('claim_id')
+              if claim_id:
+                     row = await conn.fetchrow(
+                            'SELECT * FROM "ExpenseClaim" WHERE claim_id=$1 AND employee_email=$2',
+                            claim_id, req.employee_email
+                     )
+                     if row is None:
+                            return [{"source":"sql:claim_tracking", "content":"No claim is available for this claim id"}]
+              else:
+                     row = await conn.fetchrow(
+                            'SELECT * FROM "ExpenseClaim" WHERE employee_email=$1 ORDER BY submitted_at DESC LIMIT 1',
+                            req.employee_email
+                     )
+                     if row is None:
+                            return [{"source":"sql:claim_tracking", "content":"No claim is available for this employee"}]
+              return [{"source":"sql:claim_tracking", "content":f"Claim {row['claim_id']} status is {row['status']}"}]
+       finally:
+              await conn.close()

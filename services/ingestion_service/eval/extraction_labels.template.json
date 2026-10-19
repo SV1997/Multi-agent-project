@@ -1,0 +1,13 @@
+[
+  {
+    "path": "FILL ME: path or URL of a contract file",
+    "type": "pdf",
+    "expected": {
+      "counterparty": "FILL ME",
+      "expiry_date": "2027-03-31",
+      "value": 120000,
+      "currency": "USD",
+      "auto_renews": true
+    }
+  }
+]

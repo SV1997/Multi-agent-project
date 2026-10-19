@@ -115,8 +115,7 @@ export class IngestionService {
     const keys = uploaded.map(u => {return{path:u.key, type:u.type}})
     const res = await firstValueFrom(this.httpService.post(ingestionUrl, {
         namespace: uploadIngestionDto.namespace,
-        // document_type is per request, so every file in this upload gets the same value
-        source: uploaded.map(u => ({ path: u.url, type: u.type, doc_id: u.doc_id, document_type: uploadIngestionDto.document_type }))
+        source: uploaded.map(u => ({ path: u.url, type: u.type, doc_id: u.doc_id }))
     }, {
         headers: { 'x-internal-secret': this.configService.get<string>('INTERNAL_SECRET') },
     }).pipe(
