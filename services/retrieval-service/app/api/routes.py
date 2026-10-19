@@ -12,7 +12,7 @@ from ..sql.sql_queries import (
     leave_balance,
     claim_tracking
 )
-from ..sql.aggregate_queries import claims_by_status_for_team, leave_taken_by_month
+from ..sql.aggregate_queries import claims_by_status_for_team, leave_taken_by_month, contracts_expiring_by_year
 from ..pinecone.namespace_router import query_namespace
 import time
 import logging
@@ -47,6 +47,7 @@ async def sql_query(req:SQLRetrievalRequest):
         "claim_tracking": claim_tracking,
         "claims_by_status_for_team": claims_by_status_for_team,
         "leave_taken_by_month": leave_taken_by_month,
+        "contracts_expiring_by_year": contracts_expiring_by_year,
     }
     handler = query_handlers.get(req.function)
     if handler is None:
