@@ -44,6 +44,7 @@ class SourceItem(BaseModel):
     type: Literal["pdf","url", "markdown"]
     doc_id: Optional[str] = None  # stable document identity; derived from path when omitted
     effective_date: Optional[str] = None  # ISO date the document content takes effect
+    document_type: Optional[Literal["contract", "regulation", "policy"]] = None  # drives type-specific steps (contract extraction)
 
 class IngestionRequest(BaseModel):
     namespace: Literal["legal", "hr", "engineering", "finance", "support"]

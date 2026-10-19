@@ -131,13 +131,13 @@ def extract_contract(text: str, llm: Any = None) -> ContractExtraction:
     return validate_extraction(raw, text)
 
 
-async def save_extraction(conn, doc_id: str, version: int, namespace: str, source: str, ex: ContractExtraction) -> None:
+async def save_extraction(conn, doc_id: str, version: int, namespace: str, source: str, ex: ContractExtraction, document_type: str) -> None:
     """Delete every earlier row of this document, then write the new one (atomic)."""
     async with conn.transaction():
         await conn.execute('DELETE FROM doc_extractions WHERE doc_id = $1', doc_id)
         await conn.execute(
-            'INSERT INTO doc_extractions (doc_id, version, namespace, source, counterparty, expiry_date, value, currency, '
-            'auto_renews, needs_review, review_reasons, details) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)',
-            doc_id, version, namespace, source, ex.counterparty, ex.expiry_date, ex.value, ex.currency,
+            'INSERT INTO doc_extractions (doc_id, version, namespace, document_type, source, counterparty, expiry_date, value, '
+            'currency, auto_renews, needs_review, review_reasons, details) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)',
+            doc_id, version, namespace, document_type, source, ex.counterparty, ex.expiry_date, ex.value, ex.currency,
             ex.auto_renews, ex.needs_review, ex.review_reasons, json.dumps(ex.details),
         )

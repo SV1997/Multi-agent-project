@@ -75,3 +75,8 @@ def test_empty_and_bad_year():
     assert "No contracts" in run("superadmin", [], {"year": "2030"})[0][0]["content"]
     out, conn = run("admin", ROWS, {"year": "next"})
     assert "Invalid year" in out[0]["content"] and conn.queries == []
+
+
+def test_query_only_counts_documents_typed_as_contract():
+    _, conn = run("admin", ROWS, {"year": "2027"})
+    assert "document_type = 'contract'" in conn.queries[0][0]
