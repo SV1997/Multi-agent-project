@@ -84,3 +84,74 @@ def test_other_documents_untouched(store):
     up.upsert_document(docs("b"), "hr", "d2")
     up.upsert_document(docs("a2"), "hr", "d1")
     assert {v["text"] for v in store.values()} == {"a2", "b"}
+
+
+def test_legacy_string_bm25_chunks_do_not_break_reingest():
+    """BM25 indexes saved by old versions hold plain strings, not dicts (regression: 'str' has no attribute 'get')."""
+    import asyncio
+    from app.api import route
+
+    saved = {}
+
+    async def fake_load(_):
+        return {"chunks": ["old plain string chunk", {"text": "dict chunk", "source": "a", "doc_id": "d9"}]}
+
+    async def fake_save(ns, data):
+        saved.update(data)
+
+    route.load_bm25_index, route.save_bm25_index = fake_load, fake_save
+    route.load_document = lambda source, source_type: docs("leave is 15 days")
+    route.upsert_document = lambda chunks, ns, doc_id, eff: 1
+    req = route.IngestionRequest(namespace="hr", source=[{"path": "p.pdf", "type": "pdf"}])
+    asyncio.run(route.ingest(req))
+    texts = [c["text"] for c in saved["chunks"]]
+    assert texts == ["old plain string chunk", "dict chunk", "leave is 15 days"]
+
+
+def _ingest(sources, loader, monkeypatch_calls):
+    import asyncio
+    from app.api import route
+
+    async def fake_load(_):
+        return None
+
+    async def fake_save(ns, data):
+        monkeypatch_calls["saved"] = data
+
+    route.load_bm25_index, route.save_bm25_index = fake_load, fake_save
+    route.load_document = loader
+    route.upsert_document = lambda chunks, ns, doc_id, eff: monkeypatch_calls.setdefault("upserts", []).append(doc_id) or len(chunks)
+    return asyncio.run(route.ingest(route.IngestionRequest(namespace="hr", source=sources)))
+
+
+def test_blank_file_is_rejected_and_does_not_touch_index():
+    import pytest
+    from fastapi import HTTPException
+    calls: dict = {}
+    with pytest.raises(HTTPException) as err:
+        _ingest([{"path": "blank.pdf", "type": "pdf"}], lambda source, source_type: [Document(page_content="  \n", metadata={})], calls)
+    assert err.value.status_code == 422 and "No text could be extracted from blank.pdf" in err.value.detail
+    assert "upserts" not in calls and "saved" not in calls  # old version of the document is untouched
+
+
+def test_blank_among_good_files_gives_partial_with_warning():
+    calls: dict = {}
+    loader = lambda source, source_type: docs("leave is 15 days") if source == "good.md" else [Document(page_content="", metadata={})]
+    res = _ingest([{"path": "good.md", "type": "markdown"}, {"path": "blank.md", "type": "markdown"}], loader, calls)
+    assert res.status == "partial" and res.chunks_created == 1
+    assert any("blank.md: no extractable text" in w for w in res.warnings)
+
+
+def test_display_name_strips_url_query_encoding_and_upload_uuid():
+    from app.api.route import display_name
+    url = "http://seaweedfs:8333/ingestion-uploads/d43983db-bd57-45a0-ba52-95d5972a6fe6-New%20Microsoft%20Word%20Document.pdf?X-Amz-Signature=abc"
+    assert display_name(url) == "New Microsoft Word Document.pdf"
+
+
+def test_near_blank_markdown_is_rejected_not_silently_accepted():
+    import pytest
+    from fastapi import HTTPException
+    for text in ("# Title", "TODO"):
+        with pytest.raises(HTTPException) as err:
+            _ingest([{"path": "n.md", "type": "markdown"}], lambda source, source_type, t=text: [Document(page_content=t, metadata={})], {})
+        assert err.value.status_code == 422

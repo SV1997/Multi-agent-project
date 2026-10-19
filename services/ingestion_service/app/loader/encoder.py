@@ -45,9 +45,26 @@ MIN_AVG_CHARS_PER_PAGE = 200
 MAX_EMPTY_PAGE_RATIO = 0.3
 MAX_TABLE_LINE_SHARE = 0.3
 MAX_PAGE_WARNINGS = 5
+MIN_DOC_CHARS = 10             # fewer non-space characters in the whole document = effectively blank
+MAX_GARBLED_SHARE = 0.05
+# broken font encoding "(cid:12)", replacement/control characters, UTF-8-read-as-Latin-1 mojibake ("Ã©")
+_GARBLED = re.compile(r"\(cid:\d+\)|[\ufffd\x00-\x08\x0b\x0c\x0e-\x1f]|[\u00c3\u00c2][\u0080-\u00bf]")
 
 def _is_table_like(line: str) -> bool:
     return line.count("|") >= 2 or line.count("\t") >= 2 or len(re.findall(r"\S {2,}\S", line)) >= 2
+
+def is_blank(docs: list[Document]) -> bool:
+    """True when the whole document has (almost) no text, whatever the file type."""
+    return sum(len("".join(d.page_content.split())) for d in docs) < MIN_DOC_CHARS
+
+def assess_chunking(docs: list[Document], chunks: list[Document], source_type: str) -> list[str]:
+    """Flag documents that produced suspiciously few chunks."""
+    warnings: list[str] = []
+    if len(chunks) == 1:
+        warnings.append("only 1 chunk was produced; the document is very short or only partly parsed")
+    if source_type == "pdf" and len(docs) >= 2 and len(chunks) < len(docs):
+        warnings.append(f"only {len(chunks)} chunks from {len(docs)} pages; some pages contributed little or no text")
+    return warnings
 
 def assess_parse_quality(docs: list[Document], source_type: str) -> list[str]:
     """Flag (never fix) signs of a poor parse: empty pages, thin text, table-heavy content."""
@@ -67,6 +84,14 @@ def assess_parse_quality(docs: list[Document], source_type: str) -> list[str]:
         avg = sum(len(t) for t in texts) / len(texts)
         if avg < MIN_AVG_CHARS_PER_PAGE:
             warnings.append(f"low text density: {avg:.0f} characters per page")
+    if source_type != "pdf":
+        total = sum(len(t.strip()) for t in texts)
+        if total < MIN_AVG_CHARS_PER_PAGE:
+            warnings.append(f"very little text: {total} characters in total")
+    all_text = "".join(texts)
+    bad = sum(len(m.group()) for m in _GARBLED.finditer(all_text))
+    if all_text and bad / len(all_text) > MAX_GARBLED_SHARE:
+        warnings.append(f"{bad / len(all_text):.0%} of the text looks garbled (broken font encoding or bad characters); search quality will be poor")
     lines = [ln for t in texts for ln in t.splitlines() if ln.strip()]
     if lines:
         share = sum(_is_table_like(ln) for ln in lines) / len(lines)

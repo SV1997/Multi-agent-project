@@ -81,11 +81,12 @@ class FakeConn:
 def test_reingest_deletes_then_rewrites_rows():
     conn = FakeConn()
     ex = c.validate_extraction(raw(), TEXT)
-    asyncio.run(c.save_extraction(conn, "doc1", 2, "legal", "contract.pdf", ex))
+    asyncio.run(c.save_extraction(conn, "doc1", 2, "legal", "contract.pdf", ex, "contract"))
     assert [k for k, _ in conn.calls] == ["DELETE", "INSERT"]
     assert conn.calls[0][1] == ("doc1",)  # all older versions of this doc go
     insert_args = conn.calls[1][1]
-    assert insert_args[:2] == ("doc1", 2) and json.loads(insert_args[-1])["value"]["confidence"] == 0.9
+    assert insert_args[:2] == ("doc1", 2) and insert_args[3] == "contract"  # document_type is stored
+    assert json.loads(insert_args[-1])["value"]["confidence"] == 0.9
 
 
 def test_field_accuracy_script():
@@ -96,3 +97,64 @@ def test_field_accuracy_script():
     bad = dict(good, expiry_date="2027-04-01", currency=None)
     acc = field_accuracy([(exp, good), (exp, bad)])
     assert acc["counterparty"] == 1.0 and acc["expiry_date"] == 0.5 and acc["currency"] == 0.5
+
+
+# ---- document_type gate in the ingest route ----
+import pytest  # noqa: E402
+from langchain_core.documents import Document  # noqa: E402
+
+
+def _run_ingest(monkeypatch, document_type, flag, namespace="legal"):
+    from app.api import route
+
+    calls = []
+
+    async def fake_extract(docs, doc_id, version, path):
+        calls.append(doc_id)
+        return []
+
+    async def fake_load(_):
+        return None
+
+    async def fake_save(ns, data):
+        pass
+
+    monkeypatch.setattr(route, "extract_and_store", fake_extract)
+    monkeypatch.setattr(route, "CONTRACT_EXTRACTION_ENABLED", flag)
+    monkeypatch.setattr(route, "load_bm25_index", fake_load)
+    monkeypatch.setattr(route, "save_bm25_index", fake_save)
+    monkeypatch.setattr(route, "load_document", lambda source, source_type: [Document(page_content="Some legal text.", metadata={})])
+    monkeypatch.setattr(route, "upsert_document", lambda chunks, ns, doc_id, eff: len(chunks))
+    item = {"path": "a.pdf", "type": "pdf"}
+    if document_type is not None:
+        item["document_type"] = document_type
+    res = asyncio.run(route.ingest(route.IngestionRequest(namespace=namespace, source=[item])))
+    return calls, res
+
+
+@pytest.mark.parametrize("document_type", [None, "regulation", "policy"])
+def test_extraction_skipped_for_non_contracts_without_warning(monkeypatch, document_type):
+    calls, res = _run_ingest(monkeypatch, document_type, flag=True)
+    assert calls == [] and not any('extraction' in w for w in res.warnings)
+
+
+def test_extraction_runs_for_contract_when_flag_on(monkeypatch):
+    calls, _ = _run_ingest(monkeypatch, "contract", flag=True)
+    assert len(calls) == 1
+
+
+def test_extraction_skipped_for_contract_when_flag_off(monkeypatch):
+    calls, res = _run_ingest(monkeypatch, "contract", flag=False)
+    assert calls == [] and not any('extraction' in w for w in res.warnings)
+
+
+def test_extraction_skipped_outside_legal_namespace(monkeypatch):
+    calls, _ = _run_ingest(monkeypatch, "contract", flag=True, namespace="hr")
+    assert calls == []
+
+
+def test_invalid_document_type_rejected():
+    from pydantic import ValidationError
+    from shared.contracts.schema import IngestionRequest
+    with pytest.raises(ValidationError):
+        IngestionRequest(namespace="legal", source=[{"path": "a.pdf", "type": "pdf", "document_type": "memo"}])

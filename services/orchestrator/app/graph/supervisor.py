@@ -19,6 +19,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from .hitl.interrupts import human_review_gate
 import asyncio
 from .context_policy import split_for_summary,summarize, ledger_text, LEDGER_LABEL, guard_notes
+from .memory_policy import IDENTITY_ALIASES, SEMANTIC_LIMIT, build_memory_text, canonical_memory_key, is_negative_fact
 import os
 DISABLE_LONG_TERM_MEMORY = os.getenv("DISABLE_LONG_TERM_MEMORY") == "1"
 def set_supervisor_agent(checkpointer,store):
@@ -106,6 +107,9 @@ def set_supervisor_agent(checkpointer,store):
                 - Anything that is just a paraphrase or summary of the answer text.
                 - Error states: the agent failed to answer, domain classification failed, an upstream service/API failed,
                   the agent declined to answer, the turn is pending human review, or there was insufficient evidence.
+                - Statements about MISSING information (for example "no name is on file", "location unknown"). A missing fact is not a fact.
+
+                For the employee's name, location, role and manager use exactly these topic keys: name, location, role, manager.
 
                 If nothing in the answer meets the bar above, return an empty facts list. Most turns should produce zero facts -
                 only extract when there is a genuinely durable, employee-specific detail worth recalling in a future conversation.
@@ -116,8 +120,9 @@ def set_supervisor_agent(checkpointer,store):
             for fact in extraction.facts:
                 topic_key=fact.topic_key
                 content= fact.content
-                if not topic_key or not content:
+                if not topic_key or not content or is_negative_fact(content):
                     continue
+                topic_key = canonical_memory_key(topic_key)
                 await store.aput(
                     (memory_namespace_key(state.get("employee_email")),),
                     topic_key,
@@ -129,22 +134,20 @@ def set_supervisor_agent(checkpointer,store):
 
 
     async def retrieve_memories(state:AgentState)->dict:
-        if DISABLE_LONG_TERM_MEMORY:
-            return {"long_term_memory": None}
+        # if DISABLE_LONG_TERM_MEMORY:
+        #     return {"long_term_memory": None}
         try:
             query = latest_human_query(state)
             print(query, 137)
             if not query:
                 return {"long_term_memory":None}
-            results = await store.asearch(
-                (memory_namespace_key(state.get("employee_email")),),
-                query = query,
-                limit=3
+            namespace = (memory_namespace_key(state.get("employee_email")),)
+            # identity facts (name, location, ...) are always loaded; the question only decides the rest
+            identity, semantic = await asyncio.gather(
+                asyncio.gather(*(store.aget(namespace, key) for key in IDENTITY_ALIASES)),
+                store.asearch(namespace, query=query, limit=SEMANTIC_LIMIT),
             )
-            print(results, "145")
-            if not results:
-                return {"long_term_memory":None}
-            memory_text = "\n".join(r.value.get("content","") for r in results)
+            memory_text = build_memory_text(dict(zip(IDENTITY_ALIASES, identity)), semantic)
             print(memory_text)
             return {"long_term_memory":memory_text}
         except Exception:
