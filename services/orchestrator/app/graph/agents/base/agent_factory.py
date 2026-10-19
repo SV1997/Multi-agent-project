@@ -40,6 +40,7 @@ SQL_FUNCTION_DESCRIPTIONS = {
     "deployment_status": "status of the user's most recent deployment",
     "claims_by_status_for_team": "team-wide COUNT and total amount of expense claims per status (manager-only aggregate, optional team)",
     "leave_taken_by_month": "team-wide leave days taken per month for a year (manager-only aggregate, optional team and year)",
+    "contracts_expiring_by_year": "how many contracts expire in a year, their total value and the list with source quotes (manager-only aggregate, optional year)",
     "claim_tracking": "status/details of a specific expense claim (by claim ID), or the employee's most recent claim if no ID is given",
 }
 def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: str = "", retrieval_method: list[str] = None, sql_function:list[str]=None):
@@ -292,6 +293,7 @@ ID given, use claim_tracking with empty params ({{}}) - it will look up the empl
 most recent claim on its own.
 For claims_by_status_for_team and leave_taken_by_month, include params={{"team": "<hr_team|finance_team|legal_team|support_team|engineering_team>"}} only if the question names a team, and
 for leave_taken_by_month add "year" only if a year is named; otherwise leave them out.
+For contracts_expiring_by_year, include params={{"year": "<YYYY>"}} only if a year is named.
 For all other functions, params should be empty ({{}}).
 Never invent a contract number or claim ID that is not explicitly present in the question.
                 
