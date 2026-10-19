@@ -1,5 +1,5 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable, ForbiddenException, HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ROLE_NAMESPACE_ACCESS } from 'src/auth/rbac';
 import { firstValueFrom, catchError } from 'rxjs';
@@ -18,6 +18,16 @@ export class IngestionService {
         private prismaService: PrismaService,
         private storageService: StorageService
     ) { }
+
+    // 4xx from the ingestion service (e.g. a blank file) is a user-facing message; anything else stays generic.
+    private toHttpError(error: AxiosError): Error {
+        const status = error.response?.status ?? 500;
+        const detail = (error.response?.data as { detail?: unknown } | undefined)?.detail;
+        if (status >= 400 && status < 500 && typeof detail === 'string') {
+            return new HttpException(detail, status);
+        }
+        return new InternalServerErrorException('An error occurred while contacting the ingestion service');
+    }
 
     async failedLog(ingestionDto:IngestionDto, sub: number){
         const failedAttemptIngestion = await this.prismaService.ingestionLog.create({
@@ -67,7 +77,7 @@ export class IngestionService {
             catchError(async (error: AxiosError) => {
                 this.logger.error(error.response?.data)
                 await this.failedLog(ingestionDto,sub)
-                throw new InternalServerErrorException('An error occurred while contacting the ingestion service');
+                throw this.toHttpError(error);
             }
             )
         ))
@@ -112,7 +122,7 @@ export class IngestionService {
         catchError(async (error: AxiosError) => {
             this.logger.error(error.response?.data)
             await this.failedUploadLog(uploadIngestionDto, keys, sub)
-            throw new InternalServerErrorException('An error occurred while contacting the ingestion service');
+            throw this.toHttpError(error);
         })
     ))
 
