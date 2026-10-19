@@ -81,12 +81,11 @@ jobs:
 
       - name: Update image tags in manifests
         run: |
-          sed -i -E "s|(retrieval-service):[a-zA-Z0-9._-]+|\1:${{ github.sha }}|g" k8s/retrieval-service.yaml
-          sed -i -E "s|(ingestion-service):[a-zA-Z0-9._-]+|\1:${{ github.sha }}|g" k8s/ingestion-service.yaml
-          sed -i -E "s|(orchestrator):[a-zA-Z0-9._-]+|\1:${{ github.sha }}|g" k8s/orchestrator.yaml
-          sed -i -E "s|(evaluation-service):[a-zA-Z0-9._-]+|\1:${{ github.sha }}|g" k8s/evaluation-service.yaml
-          sed -i -E "s|(api-gateway):[a-zA-Z0-9._-]+|\1:${{ github.sha }}|g" k8s/api-gateway.yaml
-          sed -i -E "s|(frontend):[a-zA-Z0-9._-]+|\1:${{ github.sha }}|g" k8s/frontend.yaml
+          git fetch origin develop
+          git reset --hard origin/develop
+          for svc in retrieval-service ingestion-service orchestrator evaluation-service api-gateway frontend; do
+            sed -i -E "s|($svc):[a-zA-Z0-9._-]+|\1:${{ github.sha }}|g" k8s/$svc.yaml
+          done
 
       - name: Commit and push updated manifests
         run: |
@@ -97,7 +96,5 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "chore: update image tags to ${{ github.sha }}"
-            git fetch origin develop
-            git rebase origin/develop
             git push origin HEAD:develop
           fi
