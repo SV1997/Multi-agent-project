@@ -12,9 +12,11 @@ spec:
       labels:
         app: frontend
     spec:
+      imagePullSecrets:            # ← imagePullSecrets goes HERE
+        - name: ecr-secret
       containers:
         - name: frontend
-          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/frontend:latest
+          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/frontend:bfdad690386d85c3185dd4c4f2b4c8f7fb7191a9
           ports:
             - containerPort: 80
 ---
