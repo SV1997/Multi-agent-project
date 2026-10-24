@@ -293,3 +293,20 @@ model ExpenseClaim{
   submitted_at DateTime  @default(now())
   ExpenseReview ExpenseReview[]
 }
+
+model ThreadFacts{
+  id Int @id @default(autoincrement())
+  thread_id String
+  slot String
+  value String
+  value_norm  String
+  version Int
+  source_turn_id String?
+  source_text String
+  superseded_by Int?
+  superseded_by_fact ThreadFacts? @relation("FactSupersession", fields: [superseded_by], references: [id])
+  supersedes ThreadFacts[] @relation("FactSupersession")
+  created_at DateTime @default(now())
+  retracted Boolean @default(false)
+  @@unique([thread_id,slot,version])
+}

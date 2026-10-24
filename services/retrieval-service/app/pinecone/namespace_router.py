@@ -29,11 +29,11 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
 
     bm25_data = await load_bm25(req.namespace)
 
-    rrf_score ={} # Reciprocal Rank Fusion
+    rrf_score ={}
 
     meta_lookup = {}
 
-    k=60 # a constant
+    k=60 
 
     for rank,(doc,score) in enumerate(results, start=1):
         rrf_score[doc.page_content] = rrf_score.get(doc.page_content,0)+(1/(k+rank))

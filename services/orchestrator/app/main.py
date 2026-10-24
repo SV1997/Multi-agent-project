@@ -12,7 +12,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../.."))
 from shared.embeddings import embeddings
-
+from .graph.conversation_memory import ensure_schema
 import uvicorn
 app_state = {}
 
@@ -51,6 +51,8 @@ async def lifespan(asp: FastAPI):
         # unguarded connection.
         store = AsyncPostgresStore(pool, index={"embed":embeddings,"dims":1536})
         await store.setup()
+        if os.getenv("MEMORY_MODE") =="memory": 
+            await ensure_schema()
         app_state["supervisor"] = set_supervisor_agent(checkpointer, store)
         app_state["memory_store"] = store
         yield

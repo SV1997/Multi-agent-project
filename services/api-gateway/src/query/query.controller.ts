@@ -36,11 +36,11 @@ export class QueryController {
     @UseGuards(AuthguardGuard)
     @Post('stream')
     async queryStream(@Body() queryDto:QueryDTO, @Req() req:AuthenticatedRequest, @Res() res:Response){
-        this.queryService.isSessionPending(queryDto.sessionId)
+        await this.queryService.isSessionPending(queryDto.sessionId)
         const turnId=queryDto.turnId
         await this.sessionService.recordUserMessage(MessageRole.USER,queryDto.sessionId,queryDto.query,turnId)
         const employeeEmail = req.user.email
-        const stream = await this.queryService.forwardQueryStream(queryDto.query,req.user.role, queryDto.sessionId, employeeEmail)
+        const stream = await this.queryService.forwardQueryStream(queryDto.query,req.user.role,queryDto.sessionId, queryDto.turnId, employeeEmail)
         
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
