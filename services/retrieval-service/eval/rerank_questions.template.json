@@ -1,0 +1,7 @@
+[
+  {
+    "question": "FILL ME: a question a user would ask",
+    "namespace": "hr",
+    "relevant_substrings": ["FILL ME: exact text that must appear in a correct chunk"]
+  }
+]

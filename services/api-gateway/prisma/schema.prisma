@@ -236,7 +236,6 @@ model DocExtraction {
   doc_id         String
   version        Int
   namespace      String
-  document_type  String   @default("unknown")
   source         String
   counterparty   String?
   expiry_date    DateTime? @db.Date

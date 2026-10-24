@@ -1,6 +1,7 @@
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../.."))
+from ....core import config
 from ....core.config import INTERNAL_SHARED_SECRET, RETRIVAL_SERVICE_URL
 import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -27,7 +28,7 @@ async def retrieve_context(state:AgentState)-> dict:
         )
         response.raise_for_status()
         data = response.json()
-
+        print(data)
     return {
         "retrieved_context": data["results"],
         "retrieval_attempts": state.get("retrieval_attempts", 0) + 1,
@@ -59,13 +60,20 @@ async def retrieve_sql_context(state:AgentState, function:str, extracted_data:di
                      "retrieved_context": data["results"],
                  }
 
+def edge_order(items: list) -> list:
+    """Best items at both ends (ranks 1,3,5,4,2), since long prompts lose the middle."""
+    return items[0::2] + items[1::2][::-1]
+
 def build_context_prompt(state:AgentState)->str:
     context_parts=[]
 
     if not state.get("retrieved_context"):
         return "no relevant context found"
     
-    for i, chunk in enumerate(state["retrieved_context"],1):
+    numbered = list(enumerate(state["retrieved_context"],1))  # numbers keep the retrieval rank
+    if config.CONTEXT_REORDER:
+        numbered = edge_order(numbered)
+    for i, chunk in numbered:
         source = chunk.get("source","unknown")
         content = chunk.get("content","")
         context_parts.append(f"[Source{i}: {source}]\n{content}")

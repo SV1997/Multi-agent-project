@@ -6,7 +6,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: argocd.multiagentragsystem.online
+    - host: argocd.multiagentragsystem.health
       http:
         paths:
           - path: /

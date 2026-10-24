@@ -41,14 +41,19 @@ async def lifespan(asp: FastAPI):
     ) as pool:
         await pool.open(wait=True)
         checkpointer = AsyncPostgresSaver(pool)
-        async with AsyncPostgresStore.from_conn_string(
-            CHECKPOINTER_DB_URL,
-            index={"embed":embeddings,"dims":1536}
-        ) as store:
-            await store.setup()
-            app_state["supervisor"] = set_supervisor_agent(checkpointer, store)
-            app_state["memory_store"] = store
-            yield
+        # AsyncPostgresStore.from_conn_string() builds its own separate
+        # connection pool with no check_connection callback, so it isn't
+        # protected against Neon dropping idle connections the way the
+        # checkpointer's pool above is - it would eventually fail with
+        # "the connection is closed". Passing the same hardened pool in
+        # directly (AsyncPostgresStore accepts a pool or a bare connection)
+        # gives the store the same protection instead of a second,
+        # unguarded connection.
+        store = AsyncPostgresStore(pool, index={"embed":embeddings,"dims":1536})
+        await store.setup()
+        app_state["supervisor"] = set_supervisor_agent(checkpointer, store)
+        app_state["memory_store"] = store
+        yield
 
 app=FastAPI(lifespan=lifespan)
 app.include_router(router,prefix="/api/v1")
