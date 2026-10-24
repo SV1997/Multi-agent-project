@@ -136,6 +136,7 @@ class OrchestratorRequest(BaseModel):
     allowed_namespace: list[str]
     thread_id: Optional[str] = None
     employee_email:str
+    turn: Optional[str] = None
 
 class RevisedAnswer(BaseModel):
     revised_answer: str
@@ -146,3 +147,18 @@ class RequestResume(BaseModel):
     human_response: RevisedAnswer
     thread_id: str
 
+HR_SLOTS = ("employee_id", "office", "seat", "manager")
+class Fact(BaseModel):
+    slot: Literal["employee_id", "office", "seat", "manager"]
+    value: str
+    retracts: bool
+
+class Extraction(BaseModel):
+    facts: list[Fact]
+
+class NewMemory(BaseModel):
+    text: str
+    linked: list[str]          # numbers as strings, e.g. ["0"]
+
+class MemoryExtraction(BaseModel):
+    memories: list[NewMemory]
