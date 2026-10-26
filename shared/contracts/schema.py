@@ -16,6 +16,7 @@ class RetrievalQuery(BaseModel):
     query: str
     namespace: Literal["legal", "hr", "engineering", "finance", "support"]
     top_k: int = 5
+    categories: Optional[list[str]] = None  # restrict the search to chunks in these categories (only when LOCALIZE is not off)
 
 
 class RetrievedChunk(BaseModel):
@@ -45,6 +46,7 @@ class SourceItem(BaseModel):
     doc_id: Optional[str] = None  # stable document identity; derived from path when omitted
     effective_date: Optional[str] = None  # ISO date the document content takes effect
     document_type: Optional[Literal["contract", "regulation", "policy"]] = None  # drives type-specific steps (contract extraction)
+    file_name: Optional[str] = None  # name the file was uploaded under; the stored path is a temp or signed name, so the taxonomy keys on this
 
 class IngestionRequest(BaseModel):
     namespace: Literal["legal", "hr", "engineering", "finance", "support"]
@@ -69,6 +71,7 @@ class AgentAnswer(BaseModel):
     requires_human_review: bool = False
     conflict_detected: bool = False
     generated_at: datetime = Field(default_factory=datetime.utcnow)
+    debug: Optional[dict[str, Any]] = None  # the query frame and its DAG; only present when localization is on
 
 class AgentAnswerLLM(BaseModel):
     confidence: float
