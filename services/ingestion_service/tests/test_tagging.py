@@ -14,6 +14,7 @@ from langchain_core.documents import Document
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../scripts"))      # for the backfill cross-check
 fake_emb = types.ModuleType("shared.embeddings.embeddings")
 fake_emb.embeddings = object()
 sys.modules.setdefault("shared.embeddings.embeddings", fake_emb)
@@ -159,6 +160,7 @@ def test_the_route_tags_pinecone_chunks_and_keyword_chunks_alike(client, store):
     for chunk in bm25_chunks:
         assert chunk["categories"] == ["leave", "earned_leave"] and chunk["is_content"] is True
         assert chunk["file_name"] == "handbook.pdf" and chunk["doc_id"] == "d1"
+        assert chunk["title"] == "HR Handbook"          # the taxonomy's title, not the loader's "Old PDF title"
 
 
 def test_a_source_without_a_file_name_is_ingested_and_uncategorized(client, store):
@@ -178,3 +180,15 @@ def test_a_broken_taxonomy_does_not_stop_ingestion_but_is_reported(client, store
     assert len(store) == 2 and all("categories" not in e["meta"] for e in store.values())
     assert any("taxonomy unavailable" in w and "backfill.py" in w for w in response.json()["warnings"])
     assert all("categories" not in c for c in client.saved_bm25["hr"]["chunks"])
+
+
+def test_a_backfill_run_right_after_ingestion_has_nothing_left_to_change(client, store):
+    """The two ways of tagging a chunk (at ingestion, and the backfill script) must agree exactly."""
+    import backfill
+
+    post_ingest(client, file_name="handbook.pdf")
+    updates, targets, stats = backfill.plan_pinecone(FakeIndex(store), TAX, ["hr"])
+
+    assert updates == [] and stats["hr"]["already_correct"] == 2
+    _, bm25_stats = backfill.plan_bm25(client.saved_bm25["hr"]["chunks"], "hr", TAX, targets)
+    assert bm25_stats.get("to_update", 0) == 0 and bm25_stats["already_correct"] == 2
