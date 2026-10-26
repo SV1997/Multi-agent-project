@@ -64,6 +64,7 @@ class FakeStructured:
 class FakeLLM:
     def __init__(self):
         self.calls = []
+        self.answer_prompts = []          # the messages the answering call received
 
     def model_copy(self, update=None):
         return self
@@ -79,6 +80,7 @@ class FakeLLM:
 
     async def ainvoke(self, messages):
         self.calls.append("answer")
+        self.answer_prompts.append(messages)
         return AIMessage(content="The answer, written from the evidence.")
 
 
@@ -113,7 +115,7 @@ def run_agent(monkeypatch):
     """run_agent(corpus, frame_categories=[...] | None, localize=True) -> (final state, the llm, the retrieval requests)"""
     monkeypatch.setattr(nodes.httpx, "AsyncClient", FakeRetrievalService)
 
-    def run(corpus, frame_categories, localize=True):
+    def run(corpus, frame_categories, localize=True, extra=None):
         FakeRetrievalService.corpus, FakeRetrievalService.requests = corpus, []
         llm = FakeLLM()
         agent = build_domain_agent(llm, "You are the HR agent.", tools=[], domain_name="hr", retrieval_method=["vector"])
@@ -125,6 +127,7 @@ def run_agent(monkeypatch):
         if localize:
             levels = widen_levels(TAX, "hr", frame_categories)
             state.update(localize_levels=levels, localize_categories=levels[0]["categories"], frame_id="hr.x")
+        state.update(extra or {})
         final = asyncio.run(agent.ainvoke(state))
         return final, llm, FakeRetrievalService.requests
 
@@ -209,3 +212,55 @@ def test_each_question_starts_counting_searches_from_zero(run_agent):
     again = asyncio.run(agent.ainvoke({**final, "messages": [HumanMessage(content="and for next year?")],
                                        "localize_levels": levels, "levels_tried": None, "retrieved_context": []}))
     assert again["retrieval_calls"] == 1 and again["levels_tried"] == [0]
+
+
+# ---------------------------------------------------------------- the category instructions reach the answering prompt
+
+from app.graph.frames.prompts import parse_category_prompts, build_prompt_texts  # noqa: E402
+from app.graph.frames.registry import auto_frames  # noqa: E402
+
+PROMPTS = parse_category_prompts(TAX, {"hr": {
+    name: {"scope": f"Scope of {name}.", "check": [f"Check for {name}."], "ask": []}
+    for name in ("leave", "earned_leave", "sick_leave", "payroll", "privacy")}})
+EARNED_FRAME = next(f for f in auto_frames(TAX, "hr") if f.frame_id == "hr.earned_leave")
+BLOCK = build_prompt_texts(EARNED_FRAME, PROMPTS, {}, [], ["earned_leave"])
+
+
+def system_prompt_of_the_answer(llm):
+    return llm.answer_prompts[0][0].content
+
+
+def test_evidence_from_the_frames_own_category_gets_the_strict_rule(run_agent):
+    _, llm, _ = run_agent([chunk("earned leave rules", "earned_leave")], ["earned_leave"], extra={"category_prompts_text": BLOCK})
+    prompt = system_prompt_of_the_answer(llm)
+
+    assert "frame hr.earned_leave" in prompt and "- earned_leave: Scope of earned_leave." in prompt
+    assert "Answer only from evidence in these categories: earned_leave. Do not borrow a rule from another category." in prompt
+    assert prompt.index("Localized answer rules") < prompt.index("Context:")             # before the evidence, not after
+
+
+def test_evidence_found_only_after_widening_gets_the_widened_rule_not_the_strict_one(run_agent):
+    final, llm, _ = run_agent([chunk("sick leave rules", "sick_leave")], ["earned_leave"], extra={"category_prompts_text": BLOCK})
+    prompt = system_prompt_of_the_answer(llm)
+
+    assert final["fallback_level"] == 1
+    assert "was widened to related parts of the documents" in prompt
+    assert "Answer only from evidence in these categories" not in prompt                   # it would contradict the evidence given
+
+
+def test_whole_domain_evidence_also_gets_the_widened_rule(run_agent):
+    final, llm, _ = run_agent([chunk("salary rules", "payroll")], ["earned_leave"], extra={"category_prompts_text": BLOCK})
+    assert final["fallback_level"] == 2 and "was widened to related parts" in system_prompt_of_the_answer(llm)
+
+
+def test_without_prompt_texts_the_answering_prompt_has_no_localized_rules(run_agent):
+    _, llm, _ = run_agent([chunk("earned leave rules", "earned_leave")], ["earned_leave"])      # the filter level, or off
+    assert "Localized answer rules" not in system_prompt_of_the_answer(llm)
+
+
+def test_the_block_is_the_only_difference_in_the_answering_prompt(run_agent):
+    corpus = [chunk("earned leave rules", "earned_leave")]
+    _, plain, _ = run_agent(corpus, ["earned_leave"])
+    _, with_block, _ = run_agent(corpus, ["earned_leave"], extra={"category_prompts_text": BLOCK})
+    without_the_block = with_block.answer_prompts[0][0].content.replace(BLOCK["strict"] + "\n\n", "")
+    assert without_the_block == plain.answer_prompts[0][0].content

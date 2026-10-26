@@ -101,3 +101,27 @@ def test_the_frame_step_gets_the_taxonomy_for_widening_only_when_localization_is
                         lambda *args, **kwargs: seen.update(kwargs) or real(*args, **kwargs))
     build(supervisor, monkeypatch, level)
     assert (seen["taxonomy"] is not None) is expects_taxonomy
+
+
+@pytest.mark.parametrize("level, loads", [("off", False), ("filter", False), ("prompt", True), ("full", True)])
+def test_the_category_prompts_are_loaded_only_at_the_levels_that_use_them(supervisor, monkeypatch, level, loads):
+    loaded, seen = [], {}
+    real_load, real_node = supervisor.load_category_prompts, supervisor.make_frame_query_node
+    monkeypatch.setattr(supervisor, "load_category_prompts", lambda taxonomy: loaded.append(1) or real_load(taxonomy))
+    monkeypatch.setattr(supervisor, "make_frame_query_node", lambda *args, **kwargs: seen.update(kwargs) or real_node(*args, **kwargs))
+    build(supervisor, monkeypatch, level)
+    assert bool(loaded) is loads and (seen["prompts"] is not None) is loads
+
+
+def test_an_invalid_prompts_file_stops_startup_at_the_prompt_levels_only(supervisor, monkeypatch):
+    from app.graph.frames.prompts import PromptError
+
+    def broken(_taxonomy):
+        raise PromptError("category prompts are invalid: hr: category 'leave' has no prompt")
+    monkeypatch.setattr(supervisor, "load_category_prompts", broken)
+
+    build(supervisor, monkeypatch, "off")
+    build(supervisor, monkeypatch, "filter")                                       # the prompts are not used at these levels
+    for level in ("prompt", "full"):
+        with pytest.raises(PromptError, match="has no prompt"):
+            build(supervisor, monkeypatch, level)

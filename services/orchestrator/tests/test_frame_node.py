@@ -405,3 +405,53 @@ def test_a_new_turn_clears_the_previous_turns_trace_even_when_it_ends_with_a_que
          "fallback_level": 2, "levels_tried": [0, 1, 2], "localize_levels": [{"level": 0, "categories": ["old"]}]},
         config={"configurable": {"thread_id": "old-trace"}}))
     assert result["clarifying_question"] and result["fallback_level"] is None and result["levels_tried"] is None
+
+
+# ---------------------------------------------------------------- the category instructions for the answering prompt
+
+from app.graph.frames.prompts import parse_category_prompts  # noqa: E402
+
+PROMPTS = parse_category_prompts(TAX, {"hr": {
+    name: {"scope": f"Scope of {name}.", "check": [f"Check for {name}."], "ask": []}
+    for name in ("leave", "earned_leave", "sick_leave", "payroll")}})
+
+
+def run_with_prompts(chooser, state, level, prompts=PROMPTS):
+    node = make_frame_query_node(REGISTRY, [("c", chooser)], level=lambda: level, taxonomy=TAX, prompts=prompts)
+    return asyncio.run(node(state))
+
+
+@pytest.mark.parametrize("level, expects_block", [("off", False), ("filter", False), ("prompt", True), ("full", True)])
+def test_the_prompt_block_is_built_only_at_the_prompt_and_full_levels(level, expects_block):
+    update = run_with_prompts(FakeChooser(choice(2)), state_of(HumanMessage(content="earned leave rules")), level)   # hr.earned_leave
+    assert (update["category_prompts_text"] is not None) is expects_block
+
+
+def test_the_block_names_the_frame_the_slots_and_what_is_missing():
+    update = run_with_prompts(FakeChooser(choice(0, [("leave_type", "earned leave")])),
+                              state_of(HumanMessage(content="how many earned leave days do I get?")), "prompt")
+    base = update["category_prompts_text"]["base"]
+    assert "frame hr.leave_entitlement" in base and "- earned_leave: Scope of earned_leave." in base and "- sick_leave:" in base
+    assert "leave_type = earned leave" in base and "Not yet known" not in base
+
+    missing = run_with_prompts(FakeChooser(choice(0)), state_of(HumanMessage(content="how many days do I get?")), "prompt")
+    assert "Not yet known: leave_type" in missing["category_prompts_text"]["base"]
+
+
+def test_the_strict_rule_names_the_categories_the_first_search_covers():
+    update = run_with_prompts(FakeChooser(choice(0)), state_of(HumanMessage(content="days?")), "prompt")
+    assert "Answer only from evidence in these categories: earned_leave, sick_leave." in update["category_prompts_text"]["strict"]
+
+
+def test_no_block_for_the_other_frame_or_without_prompts():
+    other = run_with_prompts(FakeChooser(choice(5)), state_of(HumanMessage(content="odd")), "prompt")
+    assert other["category_prompts_text"] is None
+    without = run_with_prompts(FakeChooser(choice(2)), state_of(HumanMessage(content="earned leave rules")), "prompt", prompts=None)
+    assert without["category_prompts_text"] is None
+
+
+def test_the_block_is_cleared_when_there_is_no_frame():
+    failed = run_with_prompts(FakeChooser(error=RuntimeError("down")), state_of(HumanMessage(content="x")), "prompt")
+    assert failed["category_prompts_text"] is None
+    off, _ = run_node([FakeChooser(choice(2))], state_of(HumanMessage(content="x")), level="off")
+    assert off["category_prompts_text"] is None

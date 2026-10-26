@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from .selection import menu_text, frame_by_number, ground_slots, missing_required, guard_rewrite
 from .widen import widen_levels
+from .prompts import build_prompt_texts
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ NO_FRAME = {
     "localize_levels": None,           # the search plan (widen.py); the retrieval trace is cleared with it
     "fallback_level": None,
     "levels_tried": None,
+    "category_prompts_text": None,     # the instructions for the answering prompt (prompts.py); only at the prompt/full levels
 }
 
 
@@ -114,7 +116,7 @@ def _render(turns) -> str:
     return "\n".join(lines) or "(none)"
 
 
-def make_frame_query_node(registry, choosers, level=lambda: "off", taxonomy=None):
+def make_frame_query_node(registry, choosers, level=lambda: "off", taxonomy=None, prompts=None):
     """The graph node.
 
     registry  FrameRegistry (may be None while LOCALIZE is off)
@@ -122,6 +124,8 @@ def make_frame_query_node(registry, choosers, level=lambda: "off", taxonomy=None
     level     function returning the current LOCALIZE level, so it can be changed in tests
     taxonomy  when given, the node also leaves a search plan that widens along the taxonomy (widen.py);
               without it the search stays on the frame's own categories
+    prompts   the checked category instructions (prompts.py); at the "prompt" and "full" levels the node also
+              leaves the text for the answering prompt
     """
     async def frame_query(state) -> dict:
         current = level()
@@ -189,6 +193,9 @@ def make_frame_query_node(registry, choosers, level=lambda: "off", taxonomy=None
         # widens one step per retry. Without a taxonomy there is no plan and the search stays on the frame's categories.
         plan = widen_levels(taxonomy, domain, list(frame.categories)) if taxonomy is not None else None
         first_categories = plan[0]["categories"] if plan else (list(frame.categories) or None)
+        prompt_texts = None
+        if current in ("prompt", "full") and prompts:
+            prompt_texts = build_prompt_texts(frame, prompts, kept, missing, first_categories)
 
         return {
             "frame_id": frame.frame_id,
@@ -202,6 +209,7 @@ def make_frame_query_node(registry, choosers, level=lambda: "off", taxonomy=None
             "localize_levels": plan,
             "fallback_level": None,
             "levels_tried": None,
+            "category_prompts_text": prompt_texts,
         }
 
     return frame_query

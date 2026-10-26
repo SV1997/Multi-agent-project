@@ -48,3 +48,5 @@ class AgentState(TypedDict):
     retrieval_calls: int
     fallback_level: int | None
     levels_tried: list[int] | None
+    # category instructions for the answering prompt ({"base", "strict", "widened"}; frames/prompts.py), prompt/full levels only
+    category_prompts_text: dict | None

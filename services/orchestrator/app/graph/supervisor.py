@@ -33,6 +33,7 @@ from . import conversation_memory
 from ..core import config as app_config
 from shared.taxonomy.taxonomy import load_taxonomy
 from .frames.registry import load_registry
+from .frames.prompts import load_category_prompts
 from .frames.node import (
     FrameChoice, make_frame_query_node, route_after_authorization, route_after_frame, ask_for_slot,
 )
@@ -68,10 +69,13 @@ def set_supervisor_agent(checkpointer,store):
     # at startup instead of surfacing later as a strange answer.
     frame_taxonomy = None
     frame_registry = None
+    frame_prompts = None
     frame_choosers = []
     if app_config.LOCALIZE != "off":
         frame_taxonomy = load_taxonomy()
         frame_registry = load_registry(frame_taxonomy)
+        # the category instructions are only used (and so only required to be valid) at the prompt and full levels
+        frame_prompts = load_category_prompts(frame_taxonomy) if app_config.LOCALIZE in ("prompt", "full") else None
 
         def _frame_chooser(method: str):
             return (
@@ -85,7 +89,7 @@ def set_supervisor_agent(checkpointer,store):
         frame_choosers = [("function_calling", _frame_chooser("function_calling")),
                           ("json_schema", _frame_chooser("json_schema"))]
     frame_query = make_frame_query_node(frame_registry, frame_choosers, level=lambda: app_config.LOCALIZE,
-                                        taxonomy=frame_taxonomy)
+                                        taxonomy=frame_taxonomy, prompts=frame_prompts)
     trace_query = make_trace_node(frame_taxonomy, level=lambda: app_config.LOCALIZE)
 
     summary_llm = (

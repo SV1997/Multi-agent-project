@@ -14,6 +14,7 @@ from .nodes import retrieve_sql_context
 from shared.contracts.schema import AgentAnswer, AgentAnswerLLM, RetrievalAssessment, RetrievalPlan, RewrittenQuery, SQLQuerySelection
 from langchain_core.runnables import RunnableConfig
 from ...context_policy import ledger_first, is_ledger
+from ...frames.prompts import choose_prompt_block
 logger = logging.getLogger(__name__)
 
 def route_after_reason(state:AgentState)-> str:
@@ -401,6 +402,7 @@ f"{long_term_memory}\n\n"
                 "long-term memory and document text for the same field:\n"
                 f"{thread_facts}\n\n"
                 f"{conversation_memories}\n\n"
+                f"{choose_prompt_block(state)}"
                 f"Context:{context}"
             ))
             ] + message
