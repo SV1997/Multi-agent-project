@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+import logging
 import os
 
 load_dotenv()
@@ -15,3 +16,13 @@ SERVICE_HEALTH_URLS = {
     "evaluation-service": os.getenv("EVALUATION_SERVICE_URL", "http://evaluation-service:8004"),
     "api-gateway": os.getenv("API_GATEWAY_URL", "http://api-gateway:3000"),
 }
+
+# Localized search. off = exactly today's behaviour (the query-frame step does nothing). filter / prompt / full turn
+# on the frame step and the category-restricted search; prompt adds category instructions to the answering
+# prompt; full also asks the user a question when a frame needs information the user has not given.
+# An unknown value counts as off. The retrieval service reads its own LOCALIZE setting.
+LOCALIZE_LEVELS = ("off", "filter", "prompt", "full")
+LOCALIZE = os.getenv("LOCALIZE", "off").strip().lower()
+if LOCALIZE not in LOCALIZE_LEVELS:
+    logging.getLogger(__name__).warning("LOCALIZE=%r is not one of %s; using 'off'", LOCALIZE, LOCALIZE_LEVELS)
+    LOCALIZE = "off"

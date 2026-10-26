@@ -3,10 +3,15 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../.."))
 from ....core import config
 from ....core.config import INTERNAL_SHARED_SECRET, RETRIVAL_SERVICE_URL
+import logging
 import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
 from ...state import AgentState
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+
+
 async def retrieve_context(state:AgentState)-> dict:
     # search_query is set by the adaptive retrieval graph. Fall back to the
     # latest user question so this node remains usable on its own.
@@ -16,14 +21,37 @@ async def retrieve_context(state:AgentState)-> dict:
         query = human_messages[-1].content if human_messages else state["messages"][-1].content
     namespace= state["domain"]
 
+    payload = {
+        "query": query,
+        "namespace": namespace,
+        "top_k": 5
+    }
+    # Categories narrow the search to one part of the domain (localized search). Without any, the request is
+    # exactly what it always was. When the frame step left a search plan, each new search in the same question
+    # follows it one level wider (own categories -> the parents' families -> the whole domain), and the level is
+    # recorded so it is known which level the evidence came from.
+    levels = state.get("localize_levels")
+    trace = {}
+    if levels:
+        call_number = state.get("retrieval_calls", 0)
+        step = levels[min(call_number, len(levels) - 1)]
+        categories = step["categories"]
+        trace = {
+            "retrieval_calls": call_number + 1,
+            "fallback_level": step["level"],
+            "levels_tried": list(state.get("levels_tried") or []) + [step["level"]],
+        }
+        logger.info("Search %d of this question: level %d, categories %s", call_number + 1, step["level"],
+                    categories if categories else "the whole domain")
+    else:
+        categories = state.get("localize_categories")
+    if categories:
+        payload["categories"] = categories
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             f"{RETRIVAL_SERVICE_URL}/api/v1/query",
-            json={
-                "query": query,
-                "namespace": namespace,
-                "top_k": 5
-            },
+            json=payload,
             headers={"x-internal-secret": INTERNAL_SHARED_SECRET}
         )
         response.raise_for_status()
@@ -32,6 +60,7 @@ async def retrieve_context(state:AgentState)-> dict:
     return {
         "retrieved_context": data["results"],
         "retrieval_attempts": state.get("retrieval_attempts", 0) + 1,
+        **trace,
     }
 
 async def retrieve_sql_context(state:AgentState, function:str, extracted_data:dict)->dict:

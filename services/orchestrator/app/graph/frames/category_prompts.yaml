@@ -1,0 +1,365 @@
+# Short instructions for the answering agent, one entry per category. EDIT THIS FILE.
+#
+# DRAFT: written from the category descriptions in shared/taxonomy/policy_taxonomy.yaml. These are INSTRUCTIONS ONLY.
+# They contain no policy facts and no numbers; the agent must get every fact from the retrieved documents.
+# A test fails if a digit appears in any instruction below (comments are exempt). If you later want to quote a rule here, quote it
+# from the document together with its source, and relax that test deliberately.
+#
+# Used only when LOCALIZE is "prompt" or "full": the entries for the categories of the question's frame are
+# added to the answering prompt.
+#
+# Format (per category):
+#   scope:  what the category covers (and what it does not)               - required, short
+#   check:  what to verify in the evidence before answering               - 1 to 3 items
+#   ask:    what to ask the user when it is not clear from their message  - 0 to 2 items
+#
+# Every category of the taxonomy needs an entry, except "non_content", which is never searched.
+version: 1
+
+hr:
+  leave:
+    scope: "All leave types as a group: entitlement, eligibility, carry forward, encashment and how to apply. Use it for questions that span several leave types."
+    check:
+      - "Say which leave type each rule belongs to, and never apply one type's rule to another."
+      - "Keep conditions (eligibility, approval, notice) together with the entitlement they limit."
+    ask:
+      - "Which kind of leave the user means, when the answer differs by type."
+
+  earned_leave:
+    scope: "Earned (privilege) leave only: accrual, carry forward, encashment and notice before taking it. Not casual, sick, family or compensatory leave."
+    check:
+      - "Confirm the passage is about earned leave and not another leave type before using anything from it."
+      - "State accrual, carry forward and encashment rules separately; do not merge them."
+    ask:
+      - "Whether the user is asking about taking leave, carrying it forward or encashing it, if that is not clear."
+
+  casual_and_sick_leave:
+    scope: "Casual leave and sick leave: entitlement, what happens at the end of the year, and medical certificate rules."
+    check:
+      - "Keep casual leave and sick leave apart when the passage treats them differently."
+      - "Report certificate requirements together with the condition that triggers them."
+    ask:
+      - "Whether the user means casual or sick leave, if they did not say."
+
+  family_leave:
+    scope: "Maternity, adoption and marriage leave."
+    check:
+      - "Name which of the three kinds of leave each rule is about."
+      - "Include the eligibility conditions and any documents asked for with the entitlement."
+    ask:
+      - "Which kind of family leave the user means, if they did not say."
+
+  comp_off_and_lwp:
+    scope: "Compensatory off for extra work, and leave without pay."
+    check:
+      - "Keep compensatory off and leave without pay apart; they are different things."
+      - "Report approval steps and time limits exactly as the passage states them."
+    ask:
+      - "Whether the user is asking about compensatory off or about leave without pay, if that is not clear."
+
+  attendance_and_remote_work:
+    scope: "Working hours, flexible hours, attendance, regularization, work from home and attendance in the office."
+    check:
+      - "Distinguish rules for working from home from rules for working in the office."
+      - "Report who must approve an exception or regularization, as the passage states it."
+    ask: []
+
+  payroll_and_tax:
+    scope: "Salary payment, salary structure, salary slips, tax documents and statutory deductions, as a group."
+    check:
+      - "Say whether a passage is about payment, structure, slips, tax documents or deductions before relying on it."
+      - "Do not compute or estimate amounts that the passage does not state."
+    ask: []
+
+  salary_payment:
+    scope: "When and how salary is paid: credit date, payroll cutoff, salary structure, variable pay and deductions."
+    check:
+      - "Use dates, cutoffs and structure exactly as written in the passage; never calculate a figure the passage does not give."
+      - "Keep variable pay and fixed pay apart."
+    ask: []
+
+  salary_slip_and_tax_docs:
+    scope: "What a salary slip contains and how to get it, tax forms and proofs, and how tax is computed."
+    check:
+      - "Name the document or form each statement refers to."
+      - "Do not give tax advice beyond what the passage states."
+    ask: []
+
+  provident_fund_and_gratuity:
+    scope: "Provident fund and gratuity: eligibility, contributions and payout."
+    check:
+      - "Keep provident fund and gratuity apart; they follow different rules."
+      - "Report eligibility conditions with the benefit they apply to."
+    ask:
+      - "Whether the user means provident fund or gratuity, if they did not say."
+
+  benefits_and_expenses:
+    scope: "Insurance, retirement benefits, reimbursements and business travel, as a group."
+    check:
+      - "Say which benefit or expense type a passage is about before relying on it."
+    ask:
+      - "Which benefit or expense the user means, when the answer differs between them."
+
+  medical_insurance:
+    scope: "Group medical insurance: enrolment, dependants, the insurance card and claims."
+    check:
+      - "Distinguish enrolment rules from claim rules."
+      - "Report who counts as a dependant only as the passage defines it."
+    ask:
+      - "Whether the question is about enrolment, dependants or making a claim, if that is not clear."
+
+  reimbursements_and_travel:
+    scope: "Employee expense claims, reimbursement limits and categories, and business travel rules."
+    check:
+      - "Report limits together with the expense category they apply to."
+      - "Do not say an expense is or is not reimbursable unless the passage says so."
+    ask:
+      - "What kind of expense or trip the user means, if they did not say."
+
+  employment_documents:
+    scope: "Letters and certificates: employment verification, experience, relieving, salary certificate, offer, increment, joining letter and ID card."
+    check:
+      - "Name the exact document the passage is about."
+      - "Include how to request it and who issues it, if the passage says."
+    ask:
+      - "Which letter or certificate the user needs, if they did not say."
+
+  separation:
+    scope: "Resignation, notice period, handover, exit clearance and final settlement, as a group."
+    check:
+      - "Say which stage of leaving the company a passage is about: resigning, notice, handover, clearance or settlement."
+    ask: []
+
+  resignation_and_notice:
+    scope: "How to resign, the length of the notice period, buying out notice, and notice during probation."
+    check:
+      - "Report the notice rule together with the employment status it applies to."
+      - "Keep notice buyout and notice served apart."
+    ask:
+      - "Whether the user is confirmed or still on probation, if the answer depends on it and they did not say."
+
+  exit_and_settlement:
+    scope: "Knowledge transfer, exit clearance, returning company assets, and full and final settlement."
+    check:
+      - "List the steps in the order the passage gives them."
+      - "Do not state when a settlement is paid unless the passage says so."
+    ask: []
+
+  probation_and_performance:
+    scope: "Probation and confirmation, the performance cycle and ratings, increments and internal job postings."
+    check:
+      - "Distinguish probation rules from the performance cycle and from increments."
+      - "Report the conditions for confirmation or an increment exactly as written."
+    ask:
+      - "Whether the question is about probation, performance ratings, increments or job postings, if that is not clear."
+
+  conduct_and_security:
+    scope: "The code of conduct, background verification, information security and the use of company equipment."
+    check:
+      - "State a rule only when the passage states it; do not add common-sense rules."
+      - "Keep conduct rules apart from information-security rules."
+    ask: []
+
+  hr_support_and_policy_admin:
+    scope: "How to raise an HR request, helpdesk categories, response times, escalation, policy exceptions and updates, and who the policies cover."
+    check:
+      - "Report the route for a request or escalation in the order the passage gives."
+      - "Say who a policy applies to before applying it to the user."
+    ask:
+      - "What the user needs help with, when the right route depends on it."
+
+  facilities_register:
+    scope: "A register of employee floor seating and tickets resolved. It is lookup data, not policy."
+    check:
+      - "Treat register entries as records: report only the entry asked about and quote it as it appears, never as a rule."
+      - "Never reveal other people's entries; answer only about the requesting employee."
+    ask: []
+
+legal:
+  data_protection_law:
+    scope: "Laws on how personal data may be collected, used, stored and transferred, as a group."
+    check:
+      - "Name the law (and the article or section, where the passage gives it) that each statement comes from; more than one law may be in the evidence."
+      - "Do not mix rules from different laws into one statement."
+    ask:
+      - "Which law or country the user is asking about, when the answer differs between them."
+
+  scope_and_background:
+    scope: "What a data protection law covers, its definitions, its history, and who it applies to."
+    check:
+      - "Report a definition exactly as the passage words it."
+      - "Say which law the scope or definition belongs to."
+    ask:
+      - "Which law the user means, if they did not say."
+
+  data_subject_rights:
+    scope: "The rights individuals have over their personal data: access, erasure, consent and complaints."
+    check:
+      - "Name each right separately and the conditions or exceptions that limit it."
+      - "Say which law grants the right."
+    ask:
+      - "Which right the user is asking about, if that is not clear."
+
+  controller_and_processor_duties:
+    scope: "The obligations of organisations that handle personal data: principles, lawful basis, security and officers."
+    check:
+      - "Distinguish duties of a controller from duties of a processor."
+      - "Quote the principle or the lawful basis by name rather than paraphrasing it loosely."
+    ask:
+      - "Whether the user's organisation acts as a controller or a processor, if the answer depends on it."
+
+  cross_border_transfers:
+    scope: "Sending personal data to other countries."
+    check:
+      - "Report the condition under which a transfer is allowed together with the rule that sets it."
+      - "Do not say a transfer is permitted unless the passage says so."
+    ask:
+      - "Which countries the data would move between, if the answer depends on it."
+
+  enforcement_and_penalties:
+    scope: "Supervisory bodies, fines, remedies and liability."
+    check:
+      - "Give a fine or penalty only as the passage states it, with the breach it applies to."
+      - "Say which authority or body the passage names."
+    ask: []
+
+finance:
+  procurement:
+    scope: "Buying goods and services: thresholds, quotes, approvals, suppliers, conflicts of interest and compliance, as a group."
+    check:
+      - "Say which stage of buying a passage is about before relying on it."
+      - "Report a threshold together with the action or approval it triggers."
+    ask:
+      - "What is being bought and roughly for how much, when the required steps depend on it."
+
+  purchasing_procedures:
+    scope: "Purchase thresholds, requisitions, purchase orders, and the roles of purchaser, preparer and approver."
+    check:
+      - "Name the role responsible for each step."
+      - "Report each threshold with the step it changes."
+    ask:
+      - "The value or kind of purchase, if the steps depend on it."
+
+  vendor_selection:
+    scope: "Choosing suppliers: competitive quotes, preferred vendors, vendor diversity and justifying a selection."
+    check:
+      - "Say when quotes are required and when a justification is accepted, as the passage states."
+      - "Do not recommend a supplier."
+    ask: []
+
+  conflict_of_interest:
+    scope: "Conflict of interest standards for people who buy or approve purchases."
+    check:
+      - "State the standard only as the passage words it."
+      - "Do not decide whether a particular situation is a conflict; say what the passage says to do."
+    ask: []
+
+  federal_funds_compliance:
+    scope: "Rules for federal and sponsored funds: uniform guidance, debarment, record retention and audit."
+    check:
+      - "Say that a rule applies to sponsored or federal funds only if the passage says so."
+      - "Report retention and audit requirements exactly as written."
+    ask:
+      - "Whether the purchase is paid from sponsored or federal funds, if the answer depends on it."
+
+  contracts_and_agreements:
+    scope: "Contract terms, signature thresholds, contract types such as time and materials, and sample contract language."
+    check:
+      - "Report who may sign for a value, as the passage states it."
+      - "Mark sample contract language as sample wording, not as a rule."
+    ask:
+      - "The type or value of the contract, if the answer depends on it."
+
+  special_purchases:
+    scope: "Purchases with extra restrictions: human subjects, export controls, sanctions screening and law-enforcement items."
+    check:
+      - "Name the specific restriction a passage describes."
+      - "Do not say a purchase is allowed; say what the passage requires before it can go ahead."
+    ask:
+      - "What kind of item or purchase this is, if the restriction depends on it."
+
+  subrecipients_and_contractors:
+    scope: "Telling a subrecipient from a contractor, with the checklist and examples used for that decision."
+    check:
+      - "Use the passage's own checklist and examples; do not invent criteria."
+      - "Do not classify the user's case unless the passage's criteria clearly settle it."
+    ask:
+      - "The facts of the arrangement the checklist asks about, if the user wants it classified."
+
+  expense_reimbursement:
+    scope: "Reimbursing employee expenses and travel, as a group."
+    check:
+      - "Say whether a passage is about travel costs, how to claim, or what is not reimbursed."
+    ask: []
+
+  travel_expenses:
+    scope: "Business travel costs: transport, lodging, meals, advances and what is allowable."
+    check:
+      - "Report what is allowable for each cost type separately."
+      - "Include any condition (class of travel, approval, advance) with the allowance it limits."
+    ask:
+      - "Which cost the user means (transport, lodging, meals), if they did not say."
+
+  expense_claims_and_receipts:
+    scope: "How to claim expenses: receipts, supporting documents, deadlines and credit card use."
+    check:
+      - "List the documents and the deadline exactly as the passage gives them."
+      - "Keep company credit card rules apart from claims for personal payments."
+    ask:
+      - "How the expense was paid, if the claim route depends on it."
+
+  non_reimbursable_expenses:
+    scope: "Personal items and costs that will not be reimbursed."
+    check:
+      - "Say an item is not reimbursable only if the passage names it or a clearly matching class."
+      - "If the passage does not mention the item, say so instead of guessing."
+    ask: []
+
+support:
+  password_and_access_policy:
+    scope: "Password rules, administrative access, multi-factor authentication, and who may get access to what."
+    check:
+      - "Report requirements exactly as written; do not soften or add rules."
+      - "Say which systems or roles a rule applies to."
+    ask:
+      - "Which system or role the user means, if the rule depends on it."
+
+  software_and_asset_requests:
+    scope: "Requesting new software, devices and other IT assets, and the rules for company equipment."
+    check:
+      - "List the steps and approvals in the order the passage gives."
+      - "Keep software requests apart from hardware requests."
+    ask:
+      - "Whether the user needs software or a device, if they did not say."
+
+  network_and_vpn:
+    scope: "VPN and network access, and who to contact for network problems."
+    check:
+      - "Give the contact or route exactly as the passage names it."
+      - "Do not give troubleshooting steps the passage does not contain."
+    ask:
+      - "What the user is trying to reach and what is going wrong, if they want help with a fault."
+
+  backup_and_recovery:
+    scope: "Database backups, how long backups are kept, and how to request a restore."
+    check:
+      - "Report frequency and retention only as the passage states them."
+      - "Describe the restore request route in the order given."
+    ask:
+      - "Which system or database the user means, if it matters."
+
+  customer_support_practice:
+    scope: "Good practice for running customer support: channels, response times, self-service and metrics."
+    check:
+      - "Present these as general good practice from the document, not as this company's own policy, unless the passage says so."
+      - "Attribute a recommendation to the source it comes from."
+    ask: []
+
+engineering:
+  container_build_practices:
+    scope: "Writing Dockerfiles and building container images: instructions, layers, image size and security."
+    check:
+      - "Say which instruction or practice each recommendation is about."
+      - "Present recommendations as recommendations, and quote commands exactly as written."
+    ask:
+      - "What the user is building or which instruction they are asking about, if that is not clear."
