@@ -48,6 +48,18 @@ def store(monkeypatch):
     return data
 
 
+@pytest.fixture(autouse=True)
+def restore_route_functions():
+    """Some tests below replace functions on the route module by plain assignment. Put the real ones back after
+    each test, so a stub can never leak into the tests of other files (they would be testing the stub)."""
+    from app.api import route
+    names = ("load_bm25_index", "save_bm25_index", "load_document", "upsert_document")
+    originals = {name: getattr(route, name) for name in names}
+    yield
+    for name, original in originals.items():
+        setattr(route, name, original)
+
+
 def docs(*lines: str) -> list[Document]:
     return [Document(page_content=t, metadata={"source": "policy.pdf"}) for t in lines]
 
@@ -101,7 +113,7 @@ def test_legacy_string_bm25_chunks_do_not_break_reingest():
 
     route.load_bm25_index, route.save_bm25_index = fake_load, fake_save
     route.load_document = lambda source, source_type: docs("leave is 15 days")
-    route.upsert_document = lambda chunks, ns, doc_id, eff: 1
+    route.upsert_document = lambda chunks, ns, doc_id, eff, **_: 1
     req = route.IngestionRequest(namespace="hr", source=[{"path": "p.pdf", "type": "pdf"}])
     asyncio.run(route.ingest(req))
     texts = [c["text"] for c in saved["chunks"]]
@@ -120,7 +132,7 @@ def _ingest(sources, loader, monkeypatch_calls):
 
     route.load_bm25_index, route.save_bm25_index = fake_load, fake_save
     route.load_document = loader
-    route.upsert_document = lambda chunks, ns, doc_id, eff: monkeypatch_calls.setdefault("upserts", []).append(doc_id) or len(chunks)
+    route.upsert_document = lambda chunks, ns, doc_id, eff, **_: monkeypatch_calls.setdefault("upserts", []).append(doc_id) or len(chunks)
     return asyncio.run(route.ingest(route.IngestionRequest(namespace="hr", source=sources)))
 
 

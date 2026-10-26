@@ -8,6 +8,7 @@ from typing import Optional
 from urllib.parse import urlparse
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
 from shared.embeddings.embeddings import embeddings
+from shared.taxonomy.tagging import tag_fields, fields_to_set
 from langchain_core.documents import Document
 from ..core.config import PINECONE_API_KEY, PINECONE_INDEX_NAME
 
@@ -36,13 +37,30 @@ def _existing_ids(index, namespace: str, doc_id: str) -> list[str]:
     return ids
 
 
+def tag_chunks(chunks: dict[str, Document], namespace: str, taxonomy) -> None:
+    """Put the taxonomy's labels (categories, is_content, title) on each chunk's metadata, in place.
+
+    These are the same fields scripts/backfill.py writes on chunks stored earlier (shared/taxonomy/tagging.py),
+    so a chunk is tagged the same way whenever it was ingested. When the uploaded file name is known it decides
+    which taxonomy document the chunk belongs to, because the stored source is a signed or temp name.
+    """
+    for chunk_id, doc in chunks.items():
+        source = str(doc.metadata.get("source", ""))
+        target = tag_fields(taxonomy, namespace, source, chunk_id, doc.metadata.get("file_name"))
+        doc.metadata.update(fields_to_set(target, doc.metadata))
+
+
 def upsert_document(
         documents: list[Document],
         namespace: str,
         doc_id: Optional[str] = None,
         effective_date: Optional[str] = None,
+        taxonomy=None,
 ) -> int:
     """Upsert chunks of ONE document with deterministic IDs and remove its stale chunks.
+
+    With a taxonomy, every chunk is also tagged with its categories (see tag_chunks); without one the
+    chunks are stored exactly as before.
 
     Returns the number of unique chunks the document now has in the index.
     """
@@ -63,6 +81,9 @@ def upsert_document(
         if effective_date:  # Pinecone metadata rejects null values
             doc.metadata["effective_date"] = effective_date
         unique.setdefault(make_chunk_id(doc_id, doc.page_content), doc)
+
+    if taxonomy is not None:
+        tag_chunks(unique, namespace, taxonomy)
 
     if unique:
         PineconeVectorStore.from_documents(

@@ -124,7 +124,7 @@ def _run_ingest(monkeypatch, document_type, flag, namespace="legal"):
     monkeypatch.setattr(route, "load_bm25_index", fake_load)
     monkeypatch.setattr(route, "save_bm25_index", fake_save)
     monkeypatch.setattr(route, "load_document", lambda source, source_type: [Document(page_content="Some legal text.", metadata={})])
-    monkeypatch.setattr(route, "upsert_document", lambda chunks, ns, doc_id, eff: len(chunks))
+    monkeypatch.setattr(route, "upsert_document", lambda chunks, ns, doc_id, eff, **_: len(chunks))
     item = {"path": "a.pdf", "type": "pdf"}
     if document_type is not None:
         item["document_type"] = document_type
