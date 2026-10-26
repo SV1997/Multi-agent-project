@@ -101,7 +101,7 @@ def test_legacy_string_bm25_chunks_do_not_break_reingest():
 
     route.load_bm25_index, route.save_bm25_index = fake_load, fake_save
     route.load_document = lambda source, source_type: docs("leave is 15 days")
-    route.upsert_document = lambda chunks, ns, doc_id, eff: 1
+    route.upsert_document = lambda chunks, ns, doc_id, eff, **_: 1
     req = route.IngestionRequest(namespace="hr", source=[{"path": "p.pdf", "type": "pdf"}])
     asyncio.run(route.ingest(req))
     texts = [c["text"] for c in saved["chunks"]]
@@ -120,7 +120,7 @@ def _ingest(sources, loader, monkeypatch_calls):
 
     route.load_bm25_index, route.save_bm25_index = fake_load, fake_save
     route.load_document = loader
-    route.upsert_document = lambda chunks, ns, doc_id, eff: monkeypatch_calls.setdefault("upserts", []).append(doc_id) or len(chunks)
+    route.upsert_document = lambda chunks, ns, doc_id, eff, **_: monkeypatch_calls.setdefault("upserts", []).append(doc_id) or len(chunks)
     return asyncio.run(route.ingest(route.IngestionRequest(namespace="hr", source=sources)))
 
 

@@ -14,6 +14,7 @@ from ..pinecone.upsert import upsert_document, doc_id_for_source
 from ..chunking.splitter  import split_documents
 from ..extraction.contracts import document_text, extract_contract, save_extraction
 from ..core.config import CONTRACT_EXTRACTION_ENABLED, DATABASE_URL
+from shared.taxonomy.taxonomy import load_taxonomy
 import asyncpg
 from rank_bm25 import BM25Okapi
 async def get_connection():
@@ -33,6 +34,7 @@ async def ingest(req:IngestionRequest):
         doc_ids = set()
         warnings: list[str] = []
         empty_sources = 0
+        taxonomy = load_taxonomy_or_warn(warnings)
 
         for source in req.source:
 
@@ -49,7 +51,10 @@ async def ingest(req:IngestionRequest):
                 continue
             warnings.extend(f"{display_name(source.path)}: {w}" for w in assess_chunking(docs, chunk, source.type))
             doc_id = source.doc_id or doc_id_for_source(source.path)
-            upserted += upsert_document(chunk, req.namespace, doc_id, source.effective_date)
+            if source.file_name:
+                for piece in chunk:
+                    piece.metadata["file_name"] = source.file_name
+            upserted += upsert_document(chunk, req.namespace, doc_id, source.effective_date, taxonomy=taxonomy)
             doc_ids.add(doc_id)
             if CONTRACT_EXTRACTION_ENABLED and req.namespace == "legal" and source.document_type == "contract":
                 warnings.extend(await extract_and_store(docs, doc_id, chunk[0].metadata.get("version", 1), source.path))
@@ -57,7 +62,8 @@ async def ingest(req:IngestionRequest):
             for doc in chunk:
                 if doc.page_content not in seen_texts:
                     seen_texts.add(doc.page_content)
-                    new_chunks.append({"text":doc.page_content, "source":doc.metadata.get("source",""), "doc_id":doc_id})
+                    new_chunks.append({"text":doc.page_content, "source":doc.metadata.get("source",""), "doc_id":doc_id,
+                                       **bm25_tags(doc.metadata)})
 
         if empty_sources == len(req.source):
             names = ", ".join(display_name(s.path) for s in req.source)
@@ -93,6 +99,23 @@ async def ingest(req:IngestionRequest):
             status_code=500,
             detail=f"Ingestion failed: {str(e)}"
         )
+
+def load_taxonomy_or_warn(warnings: list[str]):
+    """The taxonomy, or None with a warning. A broken taxonomy file must not stop documents being ingested;
+    the chunks are then stored without categories and scripts/backfill.py adds them later."""
+    try:
+        return load_taxonomy()
+    except Exception as e:
+        warnings.append(f"taxonomy unavailable ({type(e).__name__}); chunks were stored without categories - "
+                        "fix the taxonomy and run scripts/backfill.py --apply")
+        return None
+
+BM25_TAG_FIELDS = ("categories", "is_content", "file_name")
+
+def bm25_tags(metadata: dict) -> dict:
+    """The labels a chunk's keyword-index entry carries, taken from the metadata stored in Pinecone, so a
+    filtered keyword search sees the same categories as a filtered vector search."""
+    return {key: metadata[key] for key in BM25_TAG_FIELDS if key in metadata}
 
 def display_name(path: str) -> str:
     """Readable file name for messages: no query string, URL-decoded, gateway's upload UUID prefix removed."""
