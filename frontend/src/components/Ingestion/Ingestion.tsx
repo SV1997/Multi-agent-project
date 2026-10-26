@@ -6,6 +6,7 @@ import ApiObj from "../../common/ApiObj";
 import { showToastError, showToastSuccess } from "../../toastMessage/toast";
 
 type SourceType = "pdf" | "url" | "markdown";
+type DocumentType = "contract" | "regulation" | "policy";
 
 type SourceItem = {
     id: string; // client-side only, for list rendering — not sent to backend
@@ -19,16 +20,17 @@ type SourceItem = {
 const ROLE_NAMESPACE_ACCESS: Record<string, string[]> = {
     legal_team: ["legal"],
     hr_team: ["hr"],
-    engineering_team: ["engineering", "coding"],
+    engineering_team: ["engineering"],
     support_team: ["support"],
-    admin: ["legal", "hr", "engineering", "coding", "support"],
+    finance_team: ["finance"],
+    admin: ["legal", "hr", "engineering", "finance", "support"],
 };
 
 const NAMESPACE_LABELS: Record<string, string> = {
     legal: "Legal",
     hr: "HR",
     engineering: "Engineering",
-    coding: "Coding",
+    finance: "Finance",
     support: "Support",
 };
 
@@ -93,12 +95,15 @@ export default function IngestionForm() {
     const allowedNamespaces = ROLE_NAMESPACE_ACCESS[userRole] ?? [];
 
     const [namespace, setNamespace] = useState<string>(allowedNamespaces[0] ?? "");
+    // only sent for the legal namespace; contracts are the only type that gets structured extraction
+    const [documentType, setDocumentType] = useState<DocumentType>("policy");
     const [activeType, setActiveType] = useState<SourceType>("url");
     const [pathInput, setPathInput] = useState("");
     const [queue, setQueue] = useState<SourceItem[]>([]);
     const [submitting, setSubmitting] = useState(false);
     const [success, setSuccess] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [warnings, setWarnings] = useState<string[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleAddSource = () => {
@@ -140,14 +145,18 @@ export default function IngestionForm() {
         if (queue.length === 0 || !namespace) return;
         setSubmitting(true);
         setError(null);
+        setSuccess(false);
+        setWarnings([]);
+        const collectedWarnings: string[] = [];
         try {
             const urlItems = queue.filter((q) => q.type === "url");
             const fileItems = queue.filter((q) => q.file);
 
             if (urlItems.length > 0) {
-                const payload = { namespace, source: urlItems.map((q) => ({ path: q.path, type: q.type })) };
+                const payload = { namespace, source: urlItems.map((q) => ({ path: q.path, type: q.type, ...(namespace === "legal" ? { document_type: documentType } : {}) })) };
                 const res: any = await fetchRequestPost(ApiObj.ingestion.INGESTION, payload);
                 if (!res.success) throw new Error("namespace not allowed for role");
+                collectedWarnings.push(...(res.data?.warnings ?? []));
             }
 
             // the upload endpoint takes one `type` per request, so files of different
@@ -161,16 +170,23 @@ export default function IngestionForm() {
                 const formData = new FormData();
                 formData.append("namespace", namespace);
                 formData.append("type", type);
+                if (namespace === "legal") formData.append("document_type", documentType);
                 items.forEach((q) => formData.append("file", q.file as File));
                 const res: any = await fetchRequestPostFormData(ApiObj.ingestion.UPLOAD, formData);
                 if (!res.success) throw new Error("namespace not allowed for role");
+                collectedWarnings.push(...(res.data?.warnings ?? []));
             }
 
             setQueue([]);
             setSuccess(true);
+            setWarnings(collectedWarnings);
             showToastSuccess("source updated successfully");
         } catch (err: any) {
-            showToastError(err?.message || "Failed to add sources");
+            // the gateway sends { statusCode, message }; message may be a string or a list
+            const raw = err?.message;
+            const message = (Array.isArray(raw) ? raw.join(", ") : raw) || "Failed to add sources";
+            setError(message);
+            showToastError(message);
         } finally {
             setSubmitting(false);
         }
@@ -216,6 +232,26 @@ export default function IngestionForm() {
                             </p>
                         )}
                     </div>
+
+                    {namespace === "legal" && (
+                        <div className="mb-5">
+                            <label className="mb-1.5 block font-mono text-[10px] tracking-wide text-[#4A5468]">
+                                DOCUMENT TYPE
+                            </label>
+                            <select
+                                value={documentType}
+                                onChange={(e) => setDocumentType(e.target.value as DocumentType)}
+                                className="w-full rounded-lg border border-[#263047] bg-[#1B2433] px-3.5 py-2.5 text-[13.5px] text-[#E7E9EE] outline-none focus:border-[#F2A93C]/50"
+                            >
+                                <option value="policy">Policy</option>
+                                <option value="regulation">Regulation / statute</option>
+                                <option value="contract">Contract</option>
+                            </select>
+                            <p className="mt-1.5 text-[12px] text-[#4A5468]">
+                                Applies to everything you add in this batch. Only contracts get expiry date and value extracted.
+                            </p>
+                        </div>
+                    )}
 
                     {/* Source type + input */}
                     <div className="mb-4">
@@ -293,6 +329,17 @@ export default function IngestionForm() {
                     {error && (
                         <div className="mb-4 rounded-lg border border-red-400/30 bg-red-400/10 px-3.5 py-2.5 text-[12.5px] text-red-400">
                             {error}
+                        </div>
+                    )}
+
+                    {warnings.length > 0 && (
+                        <div className="mb-4 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3.5 py-2.5 text-[12.5px] text-amber-400">
+                            <div className="mb-1 font-medium">Added, with warnings:</div>
+                            <ul className="list-disc pl-4">
+                                {warnings.map((w, i) => (
+                                    <li key={i}>{w}</li>
+                                ))}
+                            </ul>
                         </div>
                     )}
 

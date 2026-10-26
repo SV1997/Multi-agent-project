@@ -9,6 +9,7 @@ type ConversationHeaderProps = {
 export default function ConversationHeader({ messages, activeAgent }: ConversationHeaderProps) {
   return (
     <div
+      className="sb-conv-header"
       style={{
         padding: "16px 28px",
         borderBottom: `1px solid ${COLORS.hairline}`,

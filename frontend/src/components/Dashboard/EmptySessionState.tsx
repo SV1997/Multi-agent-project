@@ -41,7 +41,7 @@ export default function EmptySessionState({ hasSessions, creatingSession, onCrea
       <div style={{ fontSize: 13.5, color: COLORS.muted, maxWidth: 340, lineHeight: 1.6, marginBottom: 24 }}>
         {hasSessions
           ? "Pick a previous session from the sidebar, or start a fresh one to ask the supervisor a new question."
-          : "Create a session to start chatting with Legal, HR, Engineering, Coding, or Support."}
+          : "Create a session to start chatting with Legal, HR, Engineering, Finance, or Support."}
       </div>
       <button
         onClick={onCreateSession}

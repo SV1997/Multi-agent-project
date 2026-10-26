@@ -1,9 +1,9 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger, OnModuleInit } from '@nestjs/common';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, CreateBucketCommand } from '@aws-sdk/client-s3';
 @Injectable()
-export class StorageService {
+export class StorageService implements OnModuleInit {
     private readonly logger = new Logger(StorageService.name);
     private readonly s3: S3Client;
     private readonly bucket:string;
@@ -18,7 +18,37 @@ export class StorageService {
         })
             this.bucket = configService.get('SEAWEED_BUCKET')||"";
     }
-    
+
+    async onModuleInit() {
+        // SeaweedFS's S3 gateway does not auto-create a bucket on first
+        // upload - PutObject into a missing bucket fails with AccessDenied
+        // rather than a clearer "no such bucket" error, so ensure it exists
+        // once at startup instead of failing every upload until someone
+        // creates it manually. Retried with backoff since SeaweedFS may
+        // still be starting up when this module initializes (depends_on
+        // only orders container start, not the S3 gateway's readiness,
+        // and this same race exists under k8s where depends_on has no
+        // equivalent at all).
+        const maxAttempts = 5;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                await this.s3.send(new CreateBucketCommand({ Bucket: this.bucket }));
+                this.logger.log(`Created bucket '${this.bucket}'.`);
+                return;
+            } catch (error: any) {
+                const code = error?.Code || error?.name;
+                if (code === 'BucketAlreadyExists' || code === 'BucketAlreadyOwnedByYou') {
+                    return;
+                }
+                if (attempt === maxAttempts) {
+                    this.logger.error(`Failed to ensure bucket '${this.bucket}' exists after ${maxAttempts} attempts.`, error);
+                    return;
+                }
+                await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+            }
+        }
+    }
+
     async uploadFile(buffer:Buffer, filename:string): Promise<string>{
          const command = new PutObjectCommand({
             Bucket:this.bucket,
