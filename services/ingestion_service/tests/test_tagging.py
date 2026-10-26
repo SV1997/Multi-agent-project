@@ -132,6 +132,7 @@ def client(store, monkeypatch):
         saved[namespace] = data
 
     monkeypatch.setattr(security, "INTERNAL_SHARED_SECRET", "test-secret")
+    monkeypatch.setattr(route, "upsert_document", up.upsert_document)      # the real one, whatever another test file did
     monkeypatch.setattr(route, "load_taxonomy", lambda: TAX)
     monkeypatch.setattr(route, "load_document", lambda source, source_type: chunks(source=source))
     monkeypatch.setattr(route, "split_documents", lambda docs: docs)
