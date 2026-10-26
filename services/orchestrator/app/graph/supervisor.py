@@ -84,7 +84,8 @@ def set_supervisor_agent(checkpointer,store):
         # the two structured-output methods fail on different inputs, as with the domain classifier
         frame_choosers = [("function_calling", _frame_chooser("function_calling")),
                           ("json_schema", _frame_chooser("json_schema"))]
-    frame_query = make_frame_query_node(frame_registry, frame_choosers, level=lambda: app_config.LOCALIZE)
+    frame_query = make_frame_query_node(frame_registry, frame_choosers, level=lambda: app_config.LOCALIZE,
+                                        taxonomy=frame_taxonomy)
     trace_query = make_trace_node(frame_taxonomy, level=lambda: app_config.LOCALIZE)
 
     summary_llm = (

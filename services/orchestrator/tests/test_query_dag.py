@@ -145,5 +145,34 @@ def test_debug_information_is_returned_only_when_a_frame_was_used():
     assert debug_payload({}) is None and debug_payload({"frame_id": None, "query_dag": {"x": 1}}) is None
     payload = debug_payload({**FRAMED, "rewritten_query": "q", "clarifying_question": None, "query_dag": {"nodes": []}})
     assert payload == {"frame_id": "hr.earned_leave", "frame_slots": {"leave_type": "earned"}, "missing_slots": [],
-                       "categories": ["earned_leave"], "rewritten_query": "q", "clarifying_question": None,
-                       "query_dag": {"nodes": []}}
+                       "categories": ["earned_leave"], "fallback_level": None, "levels_tried": None,
+                       "rewritten_query": "q", "clarifying_question": None, "query_dag": {"nodes": []}}
+
+
+# ---------------------------------------------------------------- widening shows up in the trace
+
+def test_the_dag_records_which_level_the_evidence_came_from():
+    state = state_of(**FRAMED, fallback_level=1, levels_tried=[0, 1],
+                     retrieved_context=[chunk("a.pdf", ["sick_leave"])])
+    dag = build_query_dag(TAX, state)
+    assert dag["fallback_level"] == 1 and dag["levels_tried"] == [0, 1]
+    assert node(dag, "evidence:1")["in_frame"] is False and dag["evidence_outside_frame"] == 1   # a wider level = outside the frame
+
+
+def test_the_dag_has_no_level_when_nothing_was_searched():
+    dag = build_query_dag(TAX, state_of(**FRAMED, retrieved_context=[]))
+    assert dag["fallback_level"] is None and dag["levels_tried"] == []
+
+
+def test_debug_information_carries_the_levels():
+    payload = debug_payload({**FRAMED, "fallback_level": 2, "levels_tried": [0, 1, 2]})
+    assert payload["fallback_level"] == 2 and payload["levels_tried"] == [0, 1, 2]
+
+
+def test_the_trace_step_logs_the_level_that_answered(caplog):
+    import logging
+    state = state_of(**FRAMED, fallback_level=1, levels_tried=[0, 1], retrieved_context=[chunk("a.pdf", ["sick_leave"])])
+    with caplog.at_level(logging.INFO, logger="app.graph.frames.dag"):
+        make_trace_node(TAX, level=lambda: "filter")(state)
+    assert any("level 1" in r.message and "levels searched [0, 1]" in r.message and "1 outside the frame" in r.message
+               for r in caplog.records)

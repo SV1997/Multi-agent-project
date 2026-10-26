@@ -42,3 +42,9 @@ class AgentState(TypedDict):
     rewritten_query: str | None
     query_dag: dict | None
     asked_frame_id: str | None      # the frame that asked a clarifying question; remembered for the next turn only
+    # widening (frames/widen.py): the search plan [{"level", "categories"}], how many vector searches this question
+    # has made, the level of the latest one (= the level the evidence came from), and every level tried so far
+    localize_levels: list[dict] | None
+    retrieval_calls: int
+    fallback_level: int | None
+    levels_tried: list[int] | None

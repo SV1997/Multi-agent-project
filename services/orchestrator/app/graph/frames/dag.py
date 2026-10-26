@@ -87,6 +87,10 @@ def build_query_dag(taxonomy, state) -> dict:
         "categories": frame_categories,
         "evidence_total": len(chunks),
         "evidence_outside_frame": outside,
+        # which widening level the evidence came from (0 = the frame's own categories, 2 = the whole domain) and
+        # every level that was searched; evidence from a wider level shows up as outside the frame above
+        "fallback_level": state.get("fallback_level"),
+        "levels_tried": list(state.get("levels_tried") or []),
     }
 
 
@@ -96,7 +100,12 @@ def make_trace_node(taxonomy, level=lambda: "off"):
         if level() == "off" or taxonomy is None:
             return {}
         try:
-            return {"query_dag": build_query_dag(taxonomy, state)}
+            dag = build_query_dag(taxonomy, state)
+            if dag["frame_id"]:
+                logger.info("Answered with evidence from level %s (levels searched %s): frame %s, %d chunks, %d outside the frame",
+                            dag["fallback_level"], dag["levels_tried"], dag["frame_id"],
+                            dag["evidence_total"], dag["evidence_outside_frame"])
+            return {"query_dag": dag}
         except Exception:
             logger.exception("Could not build the query DAG")
             return {}
@@ -112,6 +121,8 @@ def debug_payload(values: dict) -> dict | None:
         "frame_slots": values.get("frame_slots"),
         "missing_slots": values.get("missing_slots"),
         "categories": values.get("localize_categories"),
+        "fallback_level": values.get("fallback_level"),
+        "levels_tried": values.get("levels_tried"),
         "rewritten_query": values.get("rewritten_query"),
         "clarifying_question": values.get("clarifying_question"),
         "query_dag": values.get("query_dag"),

@@ -178,6 +178,7 @@ STEP 2 - OTHERWISE CHOOSE A SOURCE.
             "original_query": query,
             "search_query": query,
             "retrieval_attempts": 0,
+            "retrieval_calls": 0,
             "max_retrieval_attempts": 3,
             "retrieval_quality": None,
             "retrieval_assessment": None,
@@ -249,7 +250,11 @@ STEP 2 - OTHERWISE CHOOSE A SOURCE.
     def route_after_grading(state: AgentState) -> str:
         if state.get("retrieval_quality") == "relevant" or state.get("retrieval_can_use_tool"):
             return "reason"
-        exhausted= state.get("retrieval_attempts", 0) >= state.get("max_retrieval_attempts", 3)
+        # retrieval_attempts also counts every query rewrite, so the cap of 3 allows only two searches. A localized
+        # search must still be allowed to reach its last, widest level, so while one is left it is not exhausted.
+        levels = state.get("localize_levels")
+        widening_left = bool(levels) and state.get("retrieval_calls", 0) < len(levels)
+        exhausted= state.get("retrieval_attempts", 0) >= state.get("max_retrieval_attempts", 3) and not widening_left
         if not exhausted and state.get("retrieval_source")=="vector":
             return "rewrite_query"
         if not state.get("fallback_used") and "sql" in retrieval_method and "vector" in retrieval_method:

@@ -91,3 +91,13 @@ def test_an_invalid_frames_file_stops_startup_when_localize_is_on(supervisor, mo
     with pytest.raises(FrameError, match="unknown category 'nope'"):
         build(supervisor, monkeypatch, "full")
     build(supervisor, monkeypatch, "off")                                          # but off never looks at the frames
+
+
+@pytest.mark.parametrize("level, expects_taxonomy", [("off", False), ("filter", True), ("full", True)])
+def test_the_frame_step_gets_the_taxonomy_for_widening_only_when_localization_is_on(supervisor, monkeypatch, level, expects_taxonomy):
+    seen = {}
+    real = supervisor.make_frame_query_node
+    monkeypatch.setattr(supervisor, "make_frame_query_node",
+                        lambda *args, **kwargs: seen.update(kwargs) or real(*args, **kwargs))
+    build(supervisor, monkeypatch, level)
+    assert (seen["taxonomy"] is not None) is expects_taxonomy

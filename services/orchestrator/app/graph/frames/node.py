@@ -24,6 +24,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
 
 from .selection import menu_text, frame_by_number, ground_slots, missing_required, guard_rewrite
+from .widen import widen_levels
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,9 @@ NO_FRAME = {
     "localize_categories": None,
     "query_dag": None,
     "asked_frame_id": None,            # the frame that asked the user a question; kept for exactly one turn (see frame_query)
+    "localize_levels": None,           # the search plan (widen.py); the retrieval trace is cleared with it
+    "fallback_level": None,
+    "levels_tried": None,
 }
 
 
@@ -110,12 +114,14 @@ def _render(turns) -> str:
     return "\n".join(lines) or "(none)"
 
 
-def make_frame_query_node(registry, choosers, level=lambda: "off"):
+def make_frame_query_node(registry, choosers, level=lambda: "off", taxonomy=None):
     """The graph node.
 
     registry  FrameRegistry (may be None while LOCALIZE is off)
     choosers  [(label, runnable)] tried in order; each runnable's ainvoke(messages) returns a FrameChoice
     level     function returning the current LOCALIZE level, so it can be changed in tests
+    taxonomy  when given, the node also leaves a search plan that widens along the taxonomy (widen.py);
+              without it the search stays on the frame's own categories
     """
     async def frame_query(state) -> dict:
         current = level()
@@ -179,15 +185,23 @@ def make_frame_query_node(registry, choosers, level=lambda: "off"):
                     frame.frame_id, choice.number, "" if valid else ", INVALID -> other", kept,
                     [(n, r) for n, _, r in dropped], missing, rewrite_problem or "used", bool(question))
 
+        # The plan starts on the frame's own categories (a listed parent counts with everything below it) and
+        # widens one step per retry. Without a taxonomy there is no plan and the search stays on the frame's categories.
+        plan = widen_levels(taxonomy, domain, list(frame.categories)) if taxonomy is not None else None
+        first_categories = plan[0]["categories"] if plan else (list(frame.categories) or None)
+
         return {
             "frame_id": frame.frame_id,
             "frame_slots": kept,
             "missing_slots": missing,
             "clarifying_question": question,
             "rewritten_query": query if query != message else None,
-            "localize_categories": list(frame.categories) or None,
+            "localize_categories": first_categories,
             "query_dag": None,                 # cleared here; the trace step fills it in once the answer is known
             "asked_frame_id": frame.frame_id if question else None,
+            "localize_levels": plan,
+            "fallback_level": None,
+            "levels_tried": None,
         }
 
     return frame_query

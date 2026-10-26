@@ -358,3 +358,50 @@ def test_a_two_turn_conversation_asks_then_stays_with_the_same_frame():
     assert second["asked_frame_id"] is None                                    # answered: forgotten again
     assert seen == [{"frame_id": "hr.notice_period", "frame_slots": {"employment_status": "probation"},
                      "localize_categories": ["payroll"], "rewritten_query": "What is the notice period for someone on probation?"}]
+
+
+# ---------------------------------------------------------------- the search plan (widening)
+
+def run_with_taxonomy(chooser, state, level="filter"):
+    node = make_frame_query_node(REGISTRY, [("c", chooser)], level=lambda: level, taxonomy=TAX)
+    return asyncio.run(node(state))
+
+
+def test_with_a_taxonomy_the_node_leaves_a_search_plan_that_widens_to_the_parents_family():
+    update = run_with_taxonomy(FakeChooser(choice(2)), state_of(HumanMessage(content="earned leave rules")))     # hr.earned_leave
+    assert [l["level"] for l in update["localize_levels"]] == [0, 1, 2]
+    assert update["localize_levels"][0]["categories"] == ["earned_leave"] == update["localize_categories"]
+    assert update["localize_levels"][1]["categories"] == ["leave", "earned_leave", "sick_leave"]
+    assert update["localize_levels"][2]["categories"] is None
+
+
+def test_a_hand_written_frame_widens_from_all_its_categories():
+    update = run_with_taxonomy(FakeChooser(choice(0)), state_of(HumanMessage(content="how many days do I get?")))   # leave_entitlement
+    assert update["localize_levels"][0]["categories"] == ["earned_leave", "sick_leave"]
+    assert update["localize_levels"][1]["categories"] == ["leave", "earned_leave", "sick_leave"]
+
+
+def test_the_other_frame_has_a_single_level_that_is_the_whole_domain():
+    update = run_with_taxonomy(FakeChooser(choice(5)), state_of(HumanMessage(content="something odd")))
+    assert update["localize_levels"] == [{"level": 0, "categories": None}] and update["localize_categories"] is None
+
+
+def test_without_a_taxonomy_there_is_no_plan_and_the_frames_own_categories_are_used():
+    update, _ = run_node([FakeChooser(choice(2))], state_of(HumanMessage(content="earned leave rules")))
+    assert update["localize_levels"] is None and update["localize_categories"] == ["earned_leave"]
+
+
+def test_the_plan_and_the_retrieval_trace_are_cleared_when_there_is_no_frame():
+    off, _ = run_node([FakeChooser(choice(2))], state_of(HumanMessage(content="x")), level="off")
+    failed, _ = run_node([FakeChooser(error=RuntimeError("down"))], state_of(HumanMessage(content="x")))
+    for update in (off, failed):
+        assert update["localize_levels"] is None and update["fallback_level"] is None and update["levels_tried"] is None
+
+
+def test_a_new_turn_clears_the_previous_turns_trace_even_when_it_ends_with_a_question():
+    app = mini_graph(FakeChooser(choice(0)), "full", [])
+    result = asyncio.run(app.ainvoke(
+        {"domain": "hr", "messages": [HumanMessage(content="how many days do I get?")],
+         "fallback_level": 2, "levels_tried": [0, 1, 2], "localize_levels": [{"level": 0, "categories": ["old"]}]},
+        config={"configurable": {"thread_id": "old-trace"}}))
+    assert result["clarifying_question"] and result["fallback_level"] is None and result["levels_tried"] is None
