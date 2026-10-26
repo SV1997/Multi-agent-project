@@ -16,7 +16,7 @@ spec:
         - name: ecr-secret
       containers:
         - name: api-gateway
-          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/api-gateway:b841f04f1433aa735b01f6671e462de445eec9be
+          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/api-gateway:bb3a505ca1521bce32649357aa2813e916636afc
           ports:
             - containerPort: 3000
           envFrom:
