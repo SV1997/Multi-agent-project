@@ -52,7 +52,7 @@ def plan_pinecone(index, tax, namespaces):
         uncategorized_sources = Counter()
         for chunk_id, meta in all_chunks(index, ns):
             source = str(meta.get("source", ""))
-            target = tag_fields(tax, ns, source, chunk_id)
+            target = tag_fields(tax, ns, source, chunk_id, meta.get("file_name"))
             changes = fields_to_set(target, meta)
 
             count["chunks"] += 1
@@ -120,7 +120,7 @@ def plan_bm25(chunks, namespace, tax, targets):
         source = str(chunk.get("source", ""))
         target = targets.get((namespace, source, str(chunk.get("text", ""))))
         if target is None:
-            target = tag_fields(tax, namespace, source)
+            target = tag_fields(tax, namespace, source, None, chunk.get("file_name"))
             count["no_pinecone_twin"] += 1
             if target["categories"] == [UNCATEGORIZED]:
                 count["no_twin_uncategorized"] += 1

@@ -267,3 +267,19 @@ def test_the_report_says_dry_run_unless_apply_was_given():
     lines.clear()
     backfill.print_report(pine_stats, {"hr": {"chunks": 4}}, [], apply=True, log=lines.append)
     assert "DRY RUN" not in "\n".join(lines)
+
+
+# ---------------------------------------------------------------- chunks that carry the uploaded file name (Phase 2)
+
+def test_a_chunk_with_a_file_name_is_matched_to_its_document_in_pinecone_and_bm25():
+    signed = "https://files.example.com/bucket/0f8fad5b-d9cb-469f-a165-70867728950e-handbook.pdf?sig=1"
+    index = FakeIndex({"hr": {"h#1": {"source": signed, "file_name": "handbook.pdf", "text": "Earned leave"}}})
+    updates, targets, stats = backfill.plan_pinecone(index, TAX, ["hr"])
+
+    assert stats["hr"].get("uncategorized", 0) == 0
+    assert dict((cid, f) for _, cid, f in updates)["h#1"]["categories"] == ["leave", "earned_leave"]
+
+    bm25_chunk = {"text": "orphan text", "source": signed, "file_name": "handbook.pdf"}
+    new_chunks, bm25_stats = backfill.plan_bm25([bm25_chunk], "hr", TAX, targets)
+    assert new_chunks[0]["categories"] == ["leave", "earned_leave"]
+    assert "no_twin_uncategorized" not in bm25_stats          # the file name found its document, so not uncategorized
