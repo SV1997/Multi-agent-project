@@ -45,6 +45,7 @@ class SourceItem(BaseModel):
     doc_id: Optional[str] = None  # stable document identity; derived from path when omitted
     effective_date: Optional[str] = None  # ISO date the document content takes effect
     document_type: Optional[Literal["contract", "regulation", "policy"]] = None  # drives type-specific steps (contract extraction)
+    file_name: Optional[str] = None  # name the file was uploaded under; the stored path is a temp or signed name, so the taxonomy keys on this
 
 class IngestionRequest(BaseModel):
     namespace: Literal["legal", "hr", "engineering", "finance", "support"]

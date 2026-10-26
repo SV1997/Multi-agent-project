@@ -74,28 +74,36 @@ class Taxonomy:
                 frontier.extend(self.categories[domain][parent].parents)
         return seen
 
-    def document_key(self, domain: str, source: str, chunk_id: str | None = None) -> str | None:
-        """The taxonomy entry a chunk belongs to: its doc id if listed, else its file name if listed."""
+    def document_key(self, domain: str, source: str, chunk_id: str | None = None,
+                     file_name: str | None = None) -> str | None:
+        """The taxonomy entry a chunk belongs to: its doc id if listed, else the name the file was uploaded
+        under, else the last part of its source. The uploaded name wins over the source because a stored
+        source is often a temp or signed name (tmpabc.pdf, <uuid>-handbook.pdf) that never matches the yaml."""
         docs = self.documents.get(domain, {})
         doc_id = chunk_id.split("#", 1)[0] if chunk_id else None
         if doc_id and doc_id in docs:
             return doc_id
+        if file_name and file_name in docs:
+            return file_name
         name = source_key(source)
         return name if name in docs else None
 
-    def for_chunk(self, domain: str, source: str, chunk_id: str | None = None) -> tuple[str, ...]:
+    def for_chunk(self, domain: str, source: str, chunk_id: str | None = None,
+                  file_name: str | None = None) -> tuple[str, ...]:
         """Categories of one chunk: a chunk-level override first, then its document's categories."""
         if chunk_id and chunk_id in self.overrides:
             return self.overrides[chunk_id]
-        key = self.document_key(domain, source, chunk_id)
+        key = self.document_key(domain, source, chunk_id, file_name)
         return self.documents[domain][key] if key else (UNCATEGORIZED,)
 
-    def title_for(self, domain: str, source: str, chunk_id: str | None = None) -> str | None:
-        key = self.document_key(domain, source, chunk_id)
+    def title_for(self, domain: str, source: str, chunk_id: str | None = None,
+                  file_name: str | None = None) -> str | None:
+        key = self.document_key(domain, source, chunk_id, file_name)
         return self.titles.get(domain, {}).get(key) if key else None
 
-    def is_mixed(self, domain: str, source: str, chunk_id: str | None = None) -> bool:
-        key = self.document_key(domain, source, chunk_id)
+    def is_mixed(self, domain: str, source: str, chunk_id: str | None = None,
+                 file_name: str | None = None) -> bool:
+        key = self.document_key(domain, source, chunk_id, file_name)
         return key is not None and key in self.mixed.get(domain, frozenset())
 
 

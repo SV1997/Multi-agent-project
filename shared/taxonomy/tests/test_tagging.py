@@ -107,3 +107,35 @@ def test_writing_the_changes_makes_the_next_check_empty():
     existing.update(fields_to_set(target_for_handbook(), existing))
     assert fields_to_set(target_for_handbook(), existing) == {}      # safe to run twice
     assert existing["original_title"] == "Old title"
+
+
+# ---------- the uploaded file name ----------
+# An uploaded file is stored under a signed url whose last part is "<uuid>-<name>", which never matches a yaml
+# key. The name the user uploaded the file under (file_name) is what the yaml can be keyed on.
+
+SIGNED_SOURCE = "https://files.example.com/bucket/0f8fad5b-d9cb-469f-a165-70867728950e-handbook.pdf?X-Amz-Signature=abc"
+
+
+def test_the_uploaded_file_name_finds_the_document_when_the_stored_source_cannot():
+    assert tag_fields(TAX, "hr", SIGNED_SOURCE, "x")["categories"] == ["uncategorized"]        # source alone: no match
+    fields = tag_fields(TAX, "hr", SIGNED_SOURCE, "x", file_name="handbook.pdf")
+    assert fields["categories"] == ["leave", "earned_leave"] and fields["title"] == "HR Handbook"
+
+
+def test_the_file_name_is_preferred_over_the_source():
+    # source says menu.md, the uploaded name says handbook.pdf: the uploaded name wins
+    assert TAX.document_key("hr", "/tmp/menu.md", "x", file_name="handbook.pdf") == "handbook.pdf"
+
+
+def test_a_file_name_the_taxonomy_does_not_know_falls_back_to_the_source():
+    assert TAX.document_key("hr", "/tmp/handbook.pdf", "x", file_name="something_else.pdf") == "handbook.pdf"
+
+
+def test_a_chunk_override_still_beats_the_file_name():
+    fields = tag_fields(TAX, "hr", SIGNED_SOURCE, "chunk-leave", file_name="handbook.pdf")
+    assert fields["categories"] == ["earned_leave"]
+
+
+def test_calls_without_a_file_name_behave_exactly_as_before():
+    assert TAX.for_chunk("hr", "/tmp/handbook.pdf", "x") == TAX.for_chunk("hr", "/tmp/handbook.pdf", "x", None)
+    assert TAX.title_for("hr", "/tmp/handbook.pdf") == "HR Handbook"

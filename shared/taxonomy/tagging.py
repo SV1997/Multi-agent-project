@@ -20,14 +20,15 @@ from .taxonomy import Taxonomy
 NON_CONTENT = "non_content"
 
 
-def tag_fields(tax: Taxonomy, domain: str, source: str, chunk_id: str | None = None) -> dict:
+def tag_fields(tax: Taxonomy, domain: str, source: str, chunk_id: str | None = None,
+               file_name: str | None = None) -> dict:
     """What this chunk should carry, according to the taxonomy."""
-    categories = list(tax.for_chunk(domain, source, chunk_id))
+    categories = list(tax.for_chunk(domain, source, chunk_id, file_name))
     fields = {
         "categories": categories,
         "is_content": categories != [NON_CONTENT],
     }
-    title = tax.title_for(domain, source, chunk_id)
+    title = tax.title_for(domain, source, chunk_id, file_name)
     if title:
         fields["title"] = title
     return fields
