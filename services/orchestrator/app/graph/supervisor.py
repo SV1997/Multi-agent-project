@@ -19,7 +19,19 @@ from langgraph.checkpoint.memory import MemorySaver
 from .hitl.interrupts import human_review_gate
 import asyncio
 from .context_policy import split_for_summary,summarize, ledger_text, LEDGER_LABEL, guard_notes
+from .memory_policy import IDENTITY_ALIASES, SEMANTIC_LIMIT, build_memory_text, canonical_memory_key, is_negative_fact
 import os
+from langchain_core.runnables import RunnableConfig
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../.."))
+from shared.contracts.schema import HR_SLOTS, Extraction, Fact, MemoryExtraction as Mem0Extraction
+from .context_policy import apply_fact, contains_value, fetch_thread_data
+from ..core.config import DATABASE_URL
+import asyncpg
+from .conversation_memory import similar_memories, insert_memory
+from . import conversation_memory
+async def get_connection():
+    return await asyncpg.connect(DATABASE_URL)
 DISABLE_LONG_TERM_MEMORY = os.getenv("DISABLE_LONG_TERM_MEMORY") == "1"
 def set_supervisor_agent(checkpointer,store):
     class DomainClassification(BaseModel):
@@ -29,30 +41,34 @@ def set_supervisor_agent(checkpointer,store):
         content: str = Field(description="The durable fact itself.")
     class MemoryExtraction(BaseModel):
         facts: list[MemoryFact] = Field(description="Durable facts worth remembering. Empty list if nothing durable.")
-    # Untried lever for the recurring output_parse_failed on this call:
-    # method="json_schema" uses Groq's strict constrained-decoding path;
-    # method="function_calling" goes through Groq's tool-calling path
-    # instead, which behaves differently under the same input and has
-    # empirically been more robust for other structured calls in this
-    # codebase. streaming=False/reasoning_effort="low" were already set
-    # and didn't fully resolve this, and history is already filtered of
-    # tool-call artifacts (see _is_clean_conversational_turn below) - this
-    # is the next thing to try, not a confirmed fix.
-    classifier_llm = (
-        init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0.2, streaming=False, reasoning_effort="low")
-        .with_config(tags=["classification-only"])
-        .with_retry(stop_after_attempt=3)
-    )
+    # Free-text classification on gpt-oss-120b intermittently fails with Groq's
+    # output_parse_failed (empty generation) and was also inaccurate, so the classifier
+    # returns a structured enum instead. The two structured methods fail on different
+    # inputs, so classify_domain tries one, then the other, before giving up.
+    def _structured_classifier(method: str):
+        return (
+            init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0, streaming=False, reasoning_effort="low")
+            .with_structured_output(DomainClassification, method=method, **({"strict": True} if method == "json_schema" else {}))
+            .with_config(tags=["classification-only"])
+            .with_retry(stop_after_attempt=2)
+        )
+
+    classifier_function_calling = _structured_classifier("function_calling")
+    classifier_json_schema = _structured_classifier("json_schema")
 
     summary_llm = (
         init_chat_model(model="groq:openai/gpt-oss-120b", streaming=False, reasoning_effort="high").with_config(tags=["summarization"]).with_retry(stop_after_attempt=3)
     )
 
+    
     memory_extraction_llm = (init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0.2, streaming=False, reasoning_effort="low").
     with_structured_output(MemoryExtraction,method="json_schema", strict=True )
     .with_config(tags=["fetching_memory"])
     .with_retry(stop_after_attempt=3)
     )
+
+    field_extractot_llm = (init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0.2, streaming=False, reasoning_effort="low").
+    with_structured_output(Extraction,method="json_schema", strict=True ))
 
     CLASSIFIER_HISTORY_WINDOW = 6
     async def manage_context(state:AgentState)-> dict:
@@ -106,6 +122,9 @@ def set_supervisor_agent(checkpointer,store):
                 - Anything that is just a paraphrase or summary of the answer text.
                 - Error states: the agent failed to answer, domain classification failed, an upstream service/API failed,
                   the agent declined to answer, the turn is pending human review, or there was insufficient evidence.
+                - Statements about MISSING information (for example "no name is on file", "location unknown"). A missing fact is not a fact.
+
+                For the employee's name, location, role and manager use exactly these topic keys: name, location, role, manager.
 
                 If nothing in the answer meets the bar above, return an empty facts list. Most turns should produce zero facts -
                 only extract when there is a genuinely durable, employee-specific detail worth recalling in a future conversation.
@@ -116,8 +135,9 @@ def set_supervisor_agent(checkpointer,store):
             for fact in extraction.facts:
                 topic_key=fact.topic_key
                 content= fact.content
-                if not topic_key or not content:
+                if not topic_key or not content or is_negative_fact(content):
                     continue
+                topic_key = canonical_memory_key(topic_key)
                 await store.aput(
                     (memory_namespace_key(state.get("employee_email")),),
                     topic_key,
@@ -129,27 +149,25 @@ def set_supervisor_agent(checkpointer,store):
 
 
     async def retrieve_memories(state:AgentState)->dict:
-        if DISABLE_LONG_TERM_MEMORY:
-            return {"long_term_memory": None}
-        try:
-            query = latest_human_query(state)
-            print(query, 137)
-            if not query:
-                return {"long_term_memory":None}
-            results = await store.asearch(
-                (memory_namespace_key(state.get("employee_email")),),
-                query = query,
-                limit=3
-            )
-            print(results, "145")
-            if not results:
-                return {"long_term_memory":None}
-            memory_text = "\n".join(r.value.get("content","") for r in results)
-            print(memory_text)
-            return {"long_term_memory":memory_text}
-        except Exception:
-            logger.exception("some issue occurred while fetching memories")
-            return {"long_term_memory":None}
+        # if DISABLE_LONG_TERM_MEMORY:
+        return {"long_term_memory": None}
+        # try:
+        #     query = latest_human_query(state)
+        #     print(query, 137)
+        #     if not query:
+        #         return {"long_term_memory":None}
+        #     namespace = (memory_namespace_key(state.get("employee_email")),)
+        #     # identity facts (name, location, ...) are always loaded; the question only decides the rest
+        #     identity, semantic = await asyncio.gather(
+        #         asyncio.gather(*(store.aget(namespace, key) for key in IDENTITY_ALIASES)),
+        #         store.asearch(namespace, query=query, limit=SEMANTIC_LIMIT),
+        #     )
+        #     memory_text = build_memory_text(dict(zip(IDENTITY_ALIASES, identity)), semantic)
+        #     print(memory_text)
+        #     return {"long_term_memory":memory_text}
+        # except Exception:
+        #     logger.exception("some issue occurred while fetching memories")
+        #     return {"long_term_memory":None}
 
 
     async def extract_memories(state:AgentState)-> dict:
@@ -165,42 +183,51 @@ def set_supervisor_agent(checkpointer,store):
             return False
         return True
 
-    DOMAINS = ["legal", "hr", "engineering", "finance", "support"]
+    CLASSIFIER_PROMPT = SystemMessage(content="""Classify the user's MOST RECENT message into exactly one domain. Earlier messages are
+context only: use them when the latest message is a follow-up that cannot be classified
+on its own, otherwise ignore them.
+
+Domains:
+- finance: expense claims and reimbursements, salary and CTC, payroll, budgets, invoices
+- hr: leave, manager and team changes, joining and exit, benefits, office facilities and amenities, HR policies
+- legal: contracts, compliance, regulations, liability, penalties and legal disputes
+- engineering: code, deployments, infrastructure, technical documentation
+- support: IT helpdesk tickets, hardware or software problems, access issues""")
 
     async def classify_domain(state: AgentState)-> dict:
         clean_history = [m for m in state["messages"] if _is_clean_conversational_turn(m)]
-        messages = [
-            SystemMessage(content=(
-                "You are a classifier. Decide which single domain this query belongs "
-                "to. Answer with exactly one word - the domain name - chosen from: "
-                "legal, hr, engineering, finance, support."
-            ))
-        ] + clean_history[-CLASSIFIER_HISTORY_WINDOW:]
-        try:
-            decision = await classifier_llm.ainvoke(messages)
-        except GroqAPIError:
-            last_human = next(
-                (m.content for m in reversed(state["messages"]) if isinstance(m, HumanMessage)),
-                "",
-            )
-            logger.exception(
-                "Groq domain-classification generation failed to parse. "
-                "Last user message: %r", last_human
-            )
-            return {"classification_failed": True}
+        last_human = latest_human_query(state)
+        history = [CLASSIFIER_PROMPT] + clean_history[-CLASSIFIER_HISTORY_WINDOW:]
+        latest_only = [CLASSIFIER_PROMPT, HumanMessage(content=last_human)]
+        # The two structured methods fail on different inputs, so try both with recent history,
+        # then once more with only the latest message (a smaller, history-independent input).
+        attempts = [
+            ("function_calling + history", classifier_function_calling, history),
+            ("json_schema + history", classifier_json_schema, history),
+            ("function_calling + latest message only", classifier_function_calling, latest_only),
+        ]
+        for label, classifier, messages in attempts:
+            try:
+                decision = await classifier.ainvoke(messages)
+            except GroqAPIError:
+                logger.exception(
+                    "Groq domain classification failed (%s, %d messages). Last user message: %r",
+                    label, len(messages), last_human,
+                )
+                continue
 
-        text = (decision.content or "").strip().lower()
-        domain = next((d for d in DOMAINS if d in text), None)
-        if domain is None:
-            logger.warning("Domain classification produced no recognizable domain: %r", text)
-            return {"classification_failed": True}
+            domain = getattr(decision, "domain", None)
+            if domain is None:
+                logger.warning("Domain classification returned no domain (%s): %r", label, decision)
+                continue
 
-        print(domain)
+            print(domain)
+            return {
+                "domain": domain,
+                "classification_failed": False,
+            }
 
-        return{
-            "domain": domain,
-            "classification_failed": False,
-        }
+        return {"classification_failed": True}
 
     def route_after_classification(state: AgentState) -> str:
         if state.get("classification_failed"):
@@ -249,7 +276,143 @@ def set_supervisor_agent(checkpointer,store):
             "requires_human_review": False,
         }
     }
-        
+
+    FACT_EXTRACTION_PROMPT = """You extract personal HR facts that the user states about THEMSELVES from a single message.
+These facts are saved to a record and used in later turns, so accuracy matters more than coverage.
+When in doubt, extract nothing.
+
+SLOTS (the only ones you may use):
+- employee_id : the user's own employee ID or staff number (for example "EMP-10492").
+- office      : the office, city or building the user works from (for example "Pune", "Building 3").
+- seat        : the user's desk or seat location (for example "B-14", "3rd floor, row C").
+- manager     : the name of the user's direct manager.
+
+OUTPUT: a list of facts. Each fact has exactly three fields:
+- slot     : one of the four slots above.
+- value    : the value copied EXACTLY as the user wrote it. Keep letters, digits, hyphens and
+             capitalisation. Do not paraphrase, expand, correct or reformat it.
+- retracts : true or false, decided separately for every fact (see below).
+
+WHEN TO EXTRACT
+- The user states a fact about themselves: "my manager is Priya Rao", "I sit at B-14".
+- The user updates a fact: "I moved to seat C-22", "my new manager is Arjun". This is a normal
+  fact with retracts=false. The system replaces the old value automatically, so do NOT emit a
+  separate retraction for the old value.
+- If one message contains several facts, return one entry per fact.
+
+WHEN NOT TO EXTRACT (return an empty list for these)
+- Questions or requests: "who is my manager?", "what is the seat policy?", "book me a desk".
+- Facts about other people: "Ravi sits at B-14", "my friend's manager is Kiran".
+- Hypotheticals, examples and guesses: "if I moved to Delhi...", "maybe seat B-14?", "say my ID were 123".
+- General company or policy information that is not specific to the user.
+- Anything the user did not say. Never infer, guess or complete a value. If the user says
+  "I changed offices" without naming the new office, there is no value, so extract nothing.
+
+RETRACTS
+- retracts=false (the default): the user is stating or updating a value.
+- retracts=true: the user says a stored value is wrong, no longer true, or asks to forget it:
+  "forget my seat", "I no longer have a manager listed", "my office is not Pune anymore".
+  - If the user names the value being withdrawn, put that value in `value`.
+  - If the user withdraws the slot without naming a value, set `value` to an empty string "".
+  - Do not combine them. "my seat is not B-14, it is C-22" is ONE fact: seat = C-22, retracts=false.
+
+EXAMPLES
+Message: "Hi, I'm EMP-10492 and I report to Priya Rao."
+Output: [{"slot":"employee_id","value":"EMP-10492","retracts":false},
+         {"slot":"manager","value":"Priya Rao","retracts":false}]
+
+Message: "I've moved from seat B-14 to C-22."
+Output: [{"slot":"seat","value":"C-22","retracts":false}]
+
+Message: "Please forget my seat, I don't have one now."
+Output: [{"slot":"seat","value":"","retracts":true}]
+
+Message: "How many leave days do I have left?"
+Output: []
+
+Message: "Ravi from finance sits at B-14, can you check who his manager is?"
+Output: []"""
+    async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
+        thread_id = config["configurable"]["thread_id"]
+        user_text = latest_human_query(state)
+        if not user_text:
+            return {}
+
+        try:
+            result = await field_extractot_llm.ainvoke([
+                SystemMessage(content=FACT_EXTRACTION_PROMPT),
+                HumanMessage(content=user_text),
+            ])
+            facts = [
+                f for f in result.facts
+                if f.slot in HR_SLOTS and (f.value.strip() or f.retracts)
+            ]
+        except Exception:
+            # Don't return here: the facts saved in earlier turns still need loading below.
+            logger.exception("Fact extraction failed. Last user message: %r", user_text)
+            facts = []
+
+        for f in facts:
+            if f.value.strip() and not contains_value(user_text, f.value):
+                logger.warning("Dropping ungrounded fact %s=%r (not in user text)", f.slot, f.value)
+                continue
+            try:
+                outcome = await apply_fact(
+                    thread_id=thread_id, slot=f.slot, value=f.value,
+                    retracts=f.retracts, turn_id=state.get("turn"), source_text=user_text,
+                )
+                logger.info("apply_fact %s=%r retracts=%s -> %s", f.slot, f.value, f.retracts, outcome)
+            except Exception:
+                logger.exception("apply_fact failed for slot %r on thread %r", f.slot, thread_id)
+        try:
+            return {"thread_facts": await fetch_thread_data(thread_id)}
+        except Exception:
+            logger.exception("Could not load thread facts for thread %r", thread_id)
+            return {}
+    async def memory_search(state: AgentState, config: RunnableConfig) -> dict:
+        if conversation_memory.memory_mode() != "memory":
+            return {}
+        stats = conversation_memory.MEMORY_STATS
+        stats["search_calls"] += 1
+        try:
+            query = latest_human_query(state)
+            if not query:
+                return {"conversation_memories": None}
+            thread_id = config["configurable"]["thread_id"]
+            rows = await conversation_memory.search_memories(
+                state.get("employee_email") or "unknown", thread_id, query)
+            return {"conversation_memories": conversation_memory.render_memories(rows) or None}
+        except Exception:
+            stats["search_failures"] += 1
+            logger.exception("Conversation memory search failed; answering without it.")
+            return {"conversation_memories": None} 
+
+    async def _memory_add(state: AgentState, config: RunnableConfig) -> dict:
+        if conversation_memory.memory_mode() != "memory":
+            return {}
+        stats = conversation_memory.MEMORY_STATS
+        stats["add_calls"] += 1
+        try:
+            message = latest_human_query(state)
+            if not message:
+                return {}
+            thread_id = config["configurable"]["thread_id"]
+            results = await conversation_memory.add_memories(
+                state.get("employee_email") or "unknown", thread_id, message,
+                conversation_memory.recent_text(state["messages"]), state.get("turn"))
+            stats["extracted"] += len(results)
+            for r in results:
+                stats[r["status"]] += 1
+                stats["bad_link"] += len(r["bad_links"])
+        except Exception:
+            stats["add_failures"] += 1
+            logger.exception("Conversation memory add failed; the answer is unaffected.")
+        return {}
+    async def memory_add(state: AgentState, config: RunnableConfig) -> dict:
+        task = asyncio.create_task(_memory_add(state,config))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+        return {}
 
     graph = StateGraph(AgentState)
     graph.set_entry_point("manage_context")
@@ -266,10 +429,16 @@ def set_supervisor_agent(checkpointer,store):
     graph.add_node("access_denied",access_denied)
     graph.add_node("classification_failed",classification_failed)
     graph.add_node("extract_memories",extract_memories)
+    # graph.add_node("extract_facts",extract_facts)
+    graph.add_node("memory_search",memory_search)
+    graph.add_node("memory_add",memory_add)
     graph.add_edge(START,"manage_context")
     graph.add_edge(START,"retrieve_memories")
+    graph.add_edge(START,"memory_search")
+    graph.add_edge("memory_search","classify_domain")
     graph.add_edge("manage_context","classify_domain")
     graph.add_edge("retrieve_memories","classify_domain")
+    # graph.add_edge("extract_facts","classify_domain")
     graph.add_conditional_edges(
         "classify_domain", route_after_classification, {
             "ok": "check_authorization",
@@ -291,7 +460,8 @@ def set_supervisor_agent(checkpointer,store):
     graph.add_edge("hr_agent", "human_review_gate")
     graph.add_edge("engineering_agent", "human_review_gate")
     graph.add_edge("support_agent", "human_review_gate")
-    graph.add_edge("human_review_gate", "extract_memories")
+    graph.add_edge("human_review_gate", "memory_add")
+    graph.add_edge("memory_add","extract_memories")
     graph.add_edge("extract_memories",END)
     graph.add_edge("access_denied", END)
     graph.add_edge("classification_failed", END)

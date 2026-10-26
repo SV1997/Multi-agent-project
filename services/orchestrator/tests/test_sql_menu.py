@@ -10,7 +10,7 @@ from app.graph.agents.base.agent_factory import SQL_FUNCTION_DESCRIPTIONS  # noq
 from shared.contracts.schema import SQLQuerySelection  # noqa: E402
 
 AGENTS = os.path.join(os.path.dirname(__file__), "../app/graph/agents")
-NEW = {"claims_by_status_for_team": "finance_agent", "leave_taken_by_month": "hr_agent"}
+NEW = {"claims_by_status_for_team": "finance_agent", "leave_taken_by_month": "hr_agent", "contracts_expiring_by_year": "legal_agent"}
 
 
 def test_menu_matches_selection_schema():

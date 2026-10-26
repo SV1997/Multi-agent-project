@@ -27,3 +27,7 @@ class AgentState(TypedDict):
     employee_email:str
     long_term_memory: str | None
     react_trace: list[dict]
+    turn: str | None
+    thread_facts: str |None
+    conversation_memories: list[str] |None
+    search_failures: int

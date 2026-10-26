@@ -13,6 +13,8 @@ import json
 from uuid import uuid4
 from langgraph.types import Command
 from ..main import app_state
+# Env values are strings (None when unset); the graph does arithmetic on this, so it must be an int.
+TOOL_CALL_REMAINING = int(os.getenv("TOOL_CALL_REMAINING", "6"))
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
@@ -46,12 +48,13 @@ async def event_generator(req:OrchestratorRequest):
         "messages":[HumanMessage(content=req.query)],
         "domain": None,
         "retrieved_context": [],
-        "tool_calls_remaining":6,
+        "tool_calls_remaining":TOOL_CALL_REMAINING,
         "react_trace": [],
         "requires_human_review": False,
         "final_answer": None,
         "allowed_namespace": req.allowed_namespace,
-        "employee_email":req.employee_email
+        "employee_email":req.employee_email,
+        "turn":req.turn
     }
     steps_list = ["classify_domain","check_authorization","legal_agent","hr_agent","support_agent","finance_agent","engineering_agent", "prepare_retrieval", "retrieve", "grade_retrieval", "rewrite_query", "insufficient_evidence"]
     seen_stages = set()
@@ -146,12 +149,13 @@ async def orchatrator_query(req:OrchestratorRequest):
             "messages":[HumanMessage(content=req.query)],
             "domain": None,
             "retrieved_context": [],
-            "tool_calls_remaining":3,
+            "tool_calls_remaining":TOOL_CALL_REMAINING,
             "react_trace": [],
             "requires_human_review": False,
             "final_answer": None,
             "allowed_namespace": req.allowed_namespace,
-            "employee_email":req.employee_email
+            "employee_email":req.employee_email,
+            "turn": req.turn
         }, config=config)
         if "__interrupt__" in result:
             print(True if "__interrupt__" in result else None)

@@ -13,6 +13,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../.."))
 from .nodes import retrieve_sql_context
 from shared.contracts.schema import AgentAnswer, AgentAnswerLLM, RetrievalAssessment, RetrievalPlan, RewrittenQuery, SQLQuerySelection
 from langchain_core.runnables import RunnableConfig
+from ...context_policy import ledger_first, is_ledger
 logger = logging.getLogger(__name__)
 
 def route_after_reason(state:AgentState)-> str:
@@ -40,6 +41,7 @@ SQL_FUNCTION_DESCRIPTIONS = {
     "deployment_status": "status of the user's most recent deployment",
     "claims_by_status_for_team": "team-wide COUNT and total amount of expense claims per status (manager-only aggregate, optional team)",
     "leave_taken_by_month": "team-wide leave days taken per month for a year (manager-only aggregate, optional team and year)",
+    "contracts_expiring_by_year": "how many contracts expire in a year, their total value and the list with source quotes (manager-only aggregate, optional year)",
     "claim_tracking": "status/details of a specific expense claim (by claim ID), or the employee's most recent claim if no ID is given",
 }
 def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: str = "", retrieval_method: list[str] = None, sql_function:list[str]=None):
@@ -65,8 +67,8 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
 
     def conversation_so_far(state, max_items=6) -> str:
         items = []
-        for m in state["messages"][:-1]:          # skip the current question
-            if isinstance(m, SystemMessage) and "Earlier conversation" in str(m.content):
+        for m in ledger_first(state["messages"])[:-1]:         
+            if is_ledger(m):
                 items.append(("Summary", m.content))
             elif isinstance(m, HumanMessage):
                 items.append(("User", m.content))
@@ -80,19 +82,32 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
         available_ret = ", ".join(retrieval_method) or "none"
         memory_text = state.get("long_term_memory") or "none"
         history = conversation_so_far(state)
+        thread_facts = state.get("thread_facts") or "none"
+        conversation_memories = state.get("conversation_memories") or ""
         prompt = f"""You choose the retrieval method this agent should use to answer the user's question.
-        Facts already known about this user (from long-term memory):
+
+STEP 1 - CHECK WHAT IS ALREADY KNOWN. This comes before every other rule below.
+Facts the user stated in this conversation (newest values, authoritative):
+{thread_facts}
+
+{conversation_memories}
+
+Facts already known about this user (from long-term memory):
 {memory_text}
 
-Memory rule: if these facts fully answer the question, choose none.
-Memory is checked before any document search.
 Conversation so far (earlier summary, then recent turns):
 {history}
-Known-facts rule: choose none if the question can be answered from facts the
-user stated about themselves (name, seat, project, preferences) in the memory
-or conversation above. Do not apply this to live records (balances, ticket or
-claim status) or to company policy. Those change or live in documents, so
-use sql or vector even if an earlier turn mentioned them.
+
+If the facts, memories or conversation above contain the answer to the user's question, choose none.
+This applies to personal details the user told us about themselves (office or seat location, vehicle
+number, manager, employee ID, items they said they lost or claimed, preferences), even if the question
+sounds like it could also be answered from a database or documents. A later memory replaces an earlier
+one for the same detail.
+The only exception: live records that change over time and are kept in company systems (leave balance,
+pay/CTC, ticket or claim status) and company policy. For those, still choose sql or vector even if an
+earlier turn mentioned them.
+
+STEP 2 - OTHERWISE CHOOSE A SOURCE.
         Pick exactly one source from: none, sql, vector.
 
         - sql: the question asks about a specific person's or entity's live, current, absolute
@@ -112,8 +127,9 @@ use sql or vector even if an earlier turn mentioned them.
           and doesn't depend on which specific person is asking. For tickets, choose vector only
           for general ticket policy, workflow, SLA, escalation, or documentation questions that
           do not ask for an actual ticket record or its current status.
-        - none: only for questions answerable from general knowledge with no lookup at all
-          (greetings, clarifying questions, or facts that aren't domain- or person-specific).
+        - none: no lookup is needed - the answer is already in the facts or memories above (STEP 1), or the
+          question is answerable from general knowledge (greetings, clarifying questions, or facts that
+          aren't domain- or person-specific).
 
         Definitional rule: a question phrased as "what is X", "what does X mean", "explain X",
         or asking about a general concept, term, law, or regulation (e.g. "what is GDPR", "what
@@ -168,8 +184,6 @@ use sql or vector even if an earlier turn mentioned them.
 
     async def grade_retrieval(state: AgentState) -> dict:
         chunks = state.get("retrieved_context") or []
-        # Keep the grading prompt bounded: grading is evidence selection, not
-        # another full answer-generation pass.
         evidence = "\n\n".join(
             f"[Source {index}: {chunk.get('source', 'unknown')}]\n{chunk.get('content', '')[:1200]}"
             for index, chunk in enumerate(chunks, 1)
@@ -292,6 +306,7 @@ ID given, use claim_tracking with empty params ({{}}) - it will look up the empl
 most recent claim on its own.
 For claims_by_status_for_team and leave_taken_by_month, include params={{"team": "<hr_team|finance_team|legal_team|support_team|engineering_team>"}} only if the question names a team, and
 for leave_taken_by_month add "year" only if a year is named; otherwise leave them out.
+For contracts_expiring_by_year, include params={{"year": "<YYYY>"}} only if a year is named.
 For all other functions, params should be empty ({{}}).
 Never invent a contract number or claim ID that is not explicitly present in the question.
                 
@@ -345,10 +360,12 @@ Never invent a contract number or claim ID that is not explicitly present in the
             ))
 
     async def reason(state:AgentState)-> dict:
-
+        thread_facts = state.get("thread_facts") or "none"
+        conversation_memories = state.get("conversation_memories") or ""
         context = build_context_prompt(state)
         remaining = state["tool_calls_remaining"]
         long_term_memory = state.get("long_term_memory")
+        message = ledger_first(state["messages"])
         messages = [
             SystemMessage(content=(
                 f"{system_prompt}\n\n"
@@ -373,9 +390,13 @@ f"{long_term_memory}\n\n"
                 "one policy), do not pick one silently: state BOTH versions and name the source of each. "
                 "For per-employee records (leave balance, CTC, claims, tickets), the SQL/tool result is the "
                 "authority and overrides conflicting document text; mention the document value only as policy context.\n\n"
+                "Facts the user stated in this conversation. These are the newest values and override "
+                "long-term memory and document text for the same field:\n"
+                f"{thread_facts}\n\n"
+                f"{conversation_memories}\n\n"
                 f"Context:{context}"
             ))
-            ] + state["messages"]
+            ] + message
 
         # Once out of tool calls, force a final natural-language answer
         # instead of letting the model emit another (unexecuted) tool call.

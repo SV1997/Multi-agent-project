@@ -12,6 +12,6 @@ legal_agent = build_domain_agent(
     tools=[create_contract, flag_contract_for_review, change_contract_status],
     domain_name="legal",
     retrieval_method=["sql", "vector"],
-    sql_function=["contract_tracking"]
+    sql_function=["contract_tracking", "contracts_expiring_by_year"]
 )
 

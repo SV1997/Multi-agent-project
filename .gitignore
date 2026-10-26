@@ -9,3 +9,5 @@ wheels/
 # Virtual environments
 .venv
 .env
+# Localization evaluation runs (one file per LOCALIZE level)
+eval/localize/results/

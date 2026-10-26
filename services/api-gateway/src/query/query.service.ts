@@ -88,7 +88,7 @@ export class QueryService {
       console.log(updatePending, updateMessage)
     }
 
-    async forwardQueryStream(query:string, role:string, sessionId:string, employeeEmail:string){
+    async forwardQueryStream(query:string, role:string, sessionId:string,turnId:string, employeeEmail:string){
       const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || [];
 
       const session = await this.prismaService.session.findUnique({
@@ -103,7 +103,8 @@ export class QueryService {
       query: query,
       allowed_namespace: allowedNamespaces,
       thread_id:threadId,
-      employee_email:employeeEmail
+      employee_email:employeeEmail,
+      turn: turnId
     },
     {
       headers: {
