@@ -1,0 +1,41 @@
+# Hand-written query frames. EDIT THIS FILE.
+#
+# The three frames below are EXAMPLES that show the format; keep, change or delete them. They contain no policy
+# facts - only the kind of question, the categories that can answer it, and what to ask when information is missing.
+#
+# Besides these, one frame per leaf category of policy_taxonomy.yaml is generated automatically
+# (id "<domain>.<category>"), and "<domain>.other" means "none of the above". So you only write a frame here
+# when a kind of question needs slots, or spans several categories.
+#
+# Format:
+#   <domain>:
+#     <domain>.<name>:                 the id must start with the domain and must not be a generated id
+#       description: "..."             shown to the model in the menu - write it for the model
+#       categories: [a, b]             taxonomy categories to search (leaf categories; "non_content" is not allowed)
+#       required_slots:                slot name -> the question to ask the user if they have not said it
+#         leave_type: "Which kind of leave do you mean?"
+#       optional_slots: [grade]        slots that sharpen the answer but never block it
+version: 1
+
+hr:
+  # EXAMPLE - edit or delete
+  hr.leave_entitlement:
+    description: "How many days of a kind of leave an employee gets, who is eligible, and how it is taken"
+    categories: [earned_leave, casual_and_sick_leave, family_leave]
+    required_slots:
+      leave_type: "Which kind of leave do you mean (earned, casual, sick, maternity, or another)?"
+    optional_slots: [employment_type]
+
+  # EXAMPLE - edit or delete
+  hr.notice_period:
+    description: "How long the notice period is when resigning, and how it can be shortened or bought out"
+    categories: [resignation_and_notice]
+    required_slots:
+      employment_status: "Are you a confirmed employee, or still on probation?"
+    optional_slots: [grade]
+
+  # EXAMPLE - edit or delete
+  hr.leave_carry_forward:
+    description: "Carrying leave forward to the next year, what expires at year end, and encashment of leave"
+    categories: [earned_leave, casual_and_sick_leave, comp_off_and_lwp]
+    optional_slots: [leave_type]
