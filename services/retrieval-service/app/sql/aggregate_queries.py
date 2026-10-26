@@ -114,7 +114,7 @@ async def contracts_expiring_by_year(req: SQLRetrievalRequest) -> list[dict]:
         async with conn.transaction(readonly=True):
             rows = await conn.fetch(
                 'SELECT counterparty, expiry_date, value, currency, needs_review, details FROM doc_extractions '
-                'WHERE namespace = $1 AND EXTRACT(YEAR FROM expiry_date) = $2 ORDER BY expiry_date, doc_id',
+                "WHERE namespace = $1 AND document_type = 'contract' AND EXTRACT(YEAR FROM expiry_date) = $2 ORDER BY expiry_date, doc_id",
                 "legal", year,
             )
         if not rows:

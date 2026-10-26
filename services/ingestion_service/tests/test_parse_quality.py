@@ -52,3 +52,33 @@ def test_normal_pdf_has_no_warnings(tmp_path):
 def test_table_heavy_text_warns():
     rows = "\n".join(f"Item {i}  |  {i * 10}  |  USD" for i in range(10))
     assert any("tables" in w for w in assess_parse_quality([Document(page_content=rows)], "markdown"))
+
+
+# ---- blank / garbled / too-few-chunks safeguards ----
+from app.loader.encoder import assess_chunking, is_blank  # noqa: E402
+
+
+def test_near_blank_documents_count_as_blank():
+    for text in ("", "   \n\t ", "# Title", "TODO", "Page 1"):
+        assert is_blank([Document(page_content=text)]), text
+    assert not is_blank([Document(page_content="Employees get 15 days of leave.")])
+
+
+def test_garbled_text_warns_but_clean_text_does_not():
+    garbled = Document(page_content="(cid:12)(cid:45)(cid:7) " * 40, metadata={"page": 0})
+    mojibake = Document(page_content="Caf\u00c3\u00a9 \u00c3\u00a8 " * 60, metadata={"page": 0})
+    clean = Document(page_content="The leave policy grants twenty days of annual leave per calendar year. " * 6, metadata={"page": 0})
+    assert any("garbled" in w for w in assess_parse_quality([garbled], "pdf"))
+    assert any("garbled" in w for w in assess_parse_quality([mojibake], "pdf"))
+    assert not any("garbled" in w for w in assess_parse_quality([clean], "pdf"))
+
+
+def test_short_markdown_warns_about_little_text():
+    assert any("very little text" in w for w in assess_parse_quality([Document(page_content="# Leave policy\nSee HR.")], "markdown"))
+
+
+def test_too_few_chunks_warns():
+    pages = [Document(page_content="x " * 400, metadata={"page": i}) for i in range(10)]
+    assert any("only 2 chunks from 10 pages" in w for w in assess_chunking(pages, pages[:2], "pdf"))
+    assert any("only 1 chunk" in w for w in assess_chunking(pages[:1], pages[:1], "markdown"))
+    assert assess_chunking(pages, pages * 3, "pdf") == []
