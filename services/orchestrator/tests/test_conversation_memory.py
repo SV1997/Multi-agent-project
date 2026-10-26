@@ -1,3 +1,11 @@
+"""LIVE check of the memory extractor on a fixed conversation. A script, not a unit test.
+
+Run it yourself from services/orchestrator (it needs GROQ_API_KEY and calls the model):
+    uv run python tests/test_conversation_memory.py
+
+It lives in tests/ but must not run when pytest collects the folder: importing it used to make real model
+calls and needed API keys just to collect. So everything that needs keys happens only under __main__.
+"""
 import asyncio
 import os
 import sys
@@ -5,7 +13,6 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))        # services/orchestrator -> `app`
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))  # repo root -> `shared`
 
-from app.graph.conversation_memory import extract_relevant_info
 TURNS = [
     "Hi, what is the notice period for applying for leave?",
     "I want to apply for earned leave. How many days can I take at once?",
@@ -18,6 +25,7 @@ TURNS = [
 ]
 
 async def main():
+    from app.graph.conversation_memory import extract_relevant_info      # needs the API keys, so imported only when run
     notes = []                                   # (id, text), in creation order
     for n, msg in enumerate(TURNS, 1):
         existing = [{"id": i, "text": t} for i, t in notes]
@@ -30,4 +38,5 @@ async def main():
             print("   +", m["text"], "| links to:", linked, "| bad:", m["bad_links"])
             notes.append((f"n{len(notes)}", m["text"]))
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

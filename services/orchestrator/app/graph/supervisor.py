@@ -30,6 +30,14 @@ from ..core.config import DATABASE_URL
 import asyncpg
 from .conversation_memory import similar_memories, insert_memory
 from . import conversation_memory
+from ..core import config as app_config
+from shared.taxonomy.taxonomy import load_taxonomy
+from .frames.registry import load_registry
+from .frames.prompts import load_category_prompts
+from .frames.node import (
+    FrameChoice, make_frame_query_node, route_after_authorization, route_after_frame, ask_for_slot,
+)
+from .frames.dag import make_trace_node
 async def get_connection():
     return await asyncpg.connect(DATABASE_URL)
 DISABLE_LONG_TERM_MEMORY = os.getenv("DISABLE_LONG_TERM_MEMORY") == "1"
@@ -55,6 +63,34 @@ def set_supervisor_agent(checkpointer,store):
 
     classifier_function_calling = _structured_classifier("function_calling")
     classifier_json_schema = _structured_classifier("json_schema")
+
+    # Query frames (localized search). With LOCALIZE=off nothing is loaded and the frame step does nothing. With it
+    # on, the frames are validated against the taxonomy right here, so a mistake in frames.yaml stops the service
+    # at startup instead of surfacing later as a strange answer.
+    frame_taxonomy = None
+    frame_registry = None
+    frame_prompts = None
+    frame_choosers = []
+    if app_config.LOCALIZE != "off":
+        frame_taxonomy = load_taxonomy()
+        frame_registry = load_registry(frame_taxonomy)
+        # the category instructions are only used (and so only required to be valid) at the prompt and full levels
+        frame_prompts = load_category_prompts(frame_taxonomy) if app_config.LOCALIZE in ("prompt", "full") else None
+
+        def _frame_chooser(method: str):
+            return (
+                init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0, streaming=False, reasoning_effort="low")
+                .with_structured_output(FrameChoice, method=method, **({"strict": True} if method == "json_schema" else {}))
+                .with_config(tags=["frame-choice"])
+                .with_retry(stop_after_attempt=2)
+            )
+
+        # the two structured-output methods fail on different inputs, as with the domain classifier
+        frame_choosers = [("function_calling", _frame_chooser("function_calling")),
+                          ("json_schema", _frame_chooser("json_schema"))]
+    frame_query = make_frame_query_node(frame_registry, frame_choosers, level=lambda: app_config.LOCALIZE,
+                                        taxonomy=frame_taxonomy, prompts=frame_prompts)
+    trace_query = make_trace_node(frame_taxonomy, level=lambda: app_config.LOCALIZE)
 
     summary_llm = (
         init_chat_model(model="groq:openai/gpt-oss-120b", streaming=False, reasoning_effort="high").with_config(tags=["summarization"]).with_retry(stop_after_attempt=3)
@@ -432,6 +468,9 @@ Output: []"""
     # graph.add_node("extract_facts",extract_facts)
     graph.add_node("memory_search",memory_search)
     graph.add_node("memory_add",memory_add)
+    graph.add_node("frame_query", frame_query)
+    graph.add_node("ask_for_slot", ask_for_slot)
+    graph.add_node("trace_query", trace_query)
     graph.add_edge(START,"manage_context")
     graph.add_edge(START,"retrieve_memories")
     graph.add_edge(START,"memory_search")
@@ -445,22 +484,31 @@ Output: []"""
             "failed": "classification_failed",
         }
     )
+    # authorized -> frame_query (a no-op with LOCALIZE=off) -> the domain's agent, or a clarifying question
     graph.add_conditional_edges(
-        "check_authorization", route_to_agent,{
+        "check_authorization", route_after_authorization, {
+            "frame": "frame_query",
+            "denied": "access_denied"
+        }
+    )
+    graph.add_conditional_edges(
+        "frame_query", route_after_frame, {
             "legal":"legal_agent",
             "hr" : "hr_agent",
             "finance": "finance_agent",
             "support": "support_agent",
             "engineering": "engineering_agent",
-            "denied": "access_denied"
+            "ask": "ask_for_slot"
         }
     )
+    graph.add_edge("ask_for_slot", END)
     graph.add_edge("finance_agent", "human_review_gate")
     graph.add_edge("legal_agent", "human_review_gate")
     graph.add_edge("hr_agent", "human_review_gate")
     graph.add_edge("engineering_agent", "human_review_gate")
     graph.add_edge("support_agent", "human_review_gate")
-    graph.add_edge("human_review_gate", "memory_add")
+    graph.add_edge("human_review_gate", "trace_query")
+    graph.add_edge("trace_query", "memory_add")
     graph.add_edge("memory_add","extract_memories")
     graph.add_edge("extract_memories",END)
     graph.add_edge("access_denied", END)

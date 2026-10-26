@@ -13,6 +13,7 @@ import json
 from uuid import uuid4
 from langgraph.types import Command
 from ..main import app_state
+from ..graph.frames.dag import debug_payload
 # Env values are strings (None when unset); the graph does arithmetic on this, so it must be an int.
 TOOL_CALL_REMAINING = int(os.getenv("TOOL_CALL_REMAINING", "6"))
 router = APIRouter()
@@ -100,6 +101,9 @@ async def event_generator(req:OrchestratorRequest):
                 answer_text = final_answer.get("answer")
                 if answer_text:
                     yield f"data:{json.dumps({'token': answer_text})}\n\n"
+            debug = debug_payload(state_snapshot.values or {})
+            if debug:
+                yield f"data:{json.dumps({'debug': debug}, default=str)}\n\n"
             yield "data:[DONE]\n\n"
     except Exception:
         logger.exception("event_generator failed for thread_id '%s'.", thread_id)
@@ -175,6 +179,9 @@ async def orchatrator_query(req:OrchestratorRequest):
             "conflict_detected": result["final_answer"].get("conflict_detected", False),
             "generated_at": datetime.now()
         }
+        debug = debug_payload(result)
+        if debug:
+            final_res["debug"] = debug
         return final_res
     except Exception:
         logger.exception("orchatrator_query failed for thread_id '%s'.", thread_id)
