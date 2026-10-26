@@ -29,6 +29,48 @@ export class IngestionService {
         return new InternalServerErrorException('An error occurred while contacting the ingestion service');
     }
 
+    // INGESTION_URL points at .../api/v1/ingest; the documents routes live next to it at .../api/v1/documents
+    private documentsUrl(): string {
+        const ingestionUrl = this.configService.get<string>('INGESTION_URL') || "";
+        return ingestionUrl.replace(/\/ingest\/?$/, "") + "/documents";
+    }
+
+    private assertNamespaceAllowed(role: string, namespace: string, action: string) {
+        const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || []
+        if (!allowedNamespaces.includes(namespace)) {
+            throw new ForbiddenException(`you are not allowed to ${action} documents in the ${namespace} namespace`)
+        }
+    }
+
+    async listDocuments(namespace: string, role: string) {
+        this.assertNamespaceAllowed(role, namespace, 'view')
+        const res = await firstValueFrom(this.httpService.get(this.documentsUrl(), {
+            params: { namespace },
+            headers: { 'x-internal-secret': this.configService.get<string>('INTERNAL_SECRET') },
+        }).pipe(
+            catchError((error: AxiosError) => {
+                this.logger.error(`listing documents failed: ${error.code ?? ''} ${error.response?.status ?? ''} ${error.message}`)
+                throw this.toHttpError(error);
+            })
+        ))
+        return res.data
+    }
+
+    async deleteDocument(docId: string, namespace: string, role: string, sub: number) {
+        this.assertNamespaceAllowed(role, namespace, 'delete')
+        const res = await firstValueFrom(this.httpService.delete(`${this.documentsUrl()}/${encodeURIComponent(docId)}`, {
+            params: { namespace },
+            headers: { 'x-internal-secret': this.configService.get<string>('INTERNAL_SECRET') },
+        }).pipe(
+            catchError((error: AxiosError) => {
+                this.logger.error(`deleting document ${docId} failed: ${error.code ?? ''} ${error.response?.status ?? ''} ${error.message}`)
+                throw this.toHttpError(error);
+            })
+        ))
+        this.logger.log(`user ${sub} deleted document ${docId} from ${namespace}: ${JSON.stringify(res.data)}`)
+        return { success: true, data: res.data }
+    }
+
     async failedLog(ingestionDto:IngestionDto, sub: number){
         const failedAttemptIngestion = await this.prismaService.ingestionLog.create({
                 data: {
@@ -108,7 +150,7 @@ export class IngestionService {
         const fileName = `${crypto.randomUUID()}-${file.originalname}`
         const key = await this.storageService.uploadFile(file.buffer, fileName)
         const url = await this.storageService.getPresignedUrl(key)
-        return { key, url, type: uploadIngestionDto.type, doc_id: docIdFor(uploadIngestionDto.namespace, file.originalname) }
+        return { key, url, type: uploadIngestionDto.type, doc_id: docIdFor(uploadIngestionDto.namespace, file.originalname), file_name: file.originalname }
     }))
 
     const ingestionUrl = this.configService.get<string>('INGESTION_URL') || "";
@@ -116,7 +158,8 @@ export class IngestionService {
     const res = await firstValueFrom(this.httpService.post(ingestionUrl, {
         namespace: uploadIngestionDto.namespace,
         // document_type is per request, so every file in this upload gets the same value
-        source: uploaded.map(u => ({ path: u.url, type: u.type, doc_id: u.doc_id, document_type: uploadIngestionDto.document_type }))
+        // file_name is the name the user uploaded the file under; the stored path is a uuid-prefixed signed url, so the taxonomy keys on this
+        source: uploaded.map(u => ({ path: u.url, type: u.type, doc_id: u.doc_id, document_type: uploadIngestionDto.document_type, file_name: u.file_name }))
     }, {
         headers: { 'x-internal-secret': this.configService.get<string>('INTERNAL_SECRET') },
     }).pipe(

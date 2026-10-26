@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsArray, IsIn, IsOptional, IsString, ValidateNested } from "class-validator";
+import { IsArray, IsIn, IsOptional, IsString, Matches, ValidateNested } from "class-validator";
 
 type SourceType = "pdf" | "url" | "markdown";
 const DOCUMENT_TYPES = ["contract", "regulation", "policy"] as const;
@@ -37,4 +37,15 @@ export class UploadIngestionDto {
     @IsIn(DOCUMENT_TYPES, { message: "document_type must be contract, regulation or policy" })
     document_type?: DocumentType
     // no `source` field — the file itself replaces it, comes via @UploadedFile()
+}
+
+export class DocumentsQueryDto {
+    @IsString()
+    namespace!: string;
+}
+
+export class DocumentParamDto {
+    // doc ids are hex hashes; this also keeps "#", "/" and ".." out of the id forwarded to the ingestion service
+    @Matches(/^[A-Za-z0-9_-]{1,64}$/, { message: "docId is not a valid document id" })
+    docId!: string;
 }

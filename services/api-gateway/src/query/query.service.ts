@@ -22,6 +22,19 @@ export class QueryService {
       private prismaService: PrismaService,
       private eventEmitter:EventEmitter2,
      private sessionService:SessionService){}
+
+    /** One-line cause for a failed orchestrator call. error.response.data is a stream (not text) for
+     *  streaming calls and is undefined when no response arrived (connection refused, timeout). */
+    private describeOrchestratorError(error: AxiosError): string {
+      const data = error.response?.data as unknown
+      const body = typeof data === 'string' ? data
+        : data && typeof data === 'object' && !('pipe' in data) ? JSON.stringify(data)
+        : ''
+      return ['orchestrator call failed', error.code, error.response?.status, error.message, body]
+        .filter((part) => part !== undefined && part !== '')
+        .join(' | ')
+    }
+
     async forwardQuery(query:string, role:string, employeeEmail:string){
       
          const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || [];
@@ -38,7 +51,7 @@ export class QueryService {
       },
     }).pipe(
             catchError((error:AxiosError)=>{
-                this.logger.error(error.response?.data)
+                this.logger.error(this.describeOrchestratorError(error))
                 throw new InternalServerErrorException('An error occurred while contacting the orchestrator');
             }
          )
@@ -66,7 +79,7 @@ export class QueryService {
             catchError((error:AxiosError)=>{
               console.log(error);
               
-                this.logger.error(error.response?.data)
+                this.logger.error(this.describeOrchestratorError(error))
                 throw new InternalServerErrorException('An error occurred while contacting the orchestrator');
             }
          )
@@ -88,11 +101,12 @@ export class QueryService {
       console.log(updatePending, updateMessage)
     }
 
-    async forwardQueryStream(query:string, role:string, sessionId:string,turnId:string, employeeEmail:string){
+    async forwardQueryStream(query:string, role:string, sessionId:string,turnId:string, employeeEmail:string, userId:number){
       const allowedNamespaces = ROLE_NAMESPACE_ACCESS[role] || [];
 
-      const session = await this.prismaService.session.findUnique({
-        where:{id:sessionId}
+      // Scoped to the caller: a session id alone must not let one user post into another's session.
+      const session = await this.prismaService.session.findFirst({
+        where:{id:sessionId, userId}
       })
       const threadId= session?.thread_id
       if(!threadId){
@@ -113,7 +127,7 @@ export class QueryService {
       responseType: 'stream'
     }).pipe(
             catchError((error:AxiosError)=>{
-                this.logger.error(error.response?.data)
+                this.logger.error(this.describeOrchestratorError(error))
                 throw new InternalServerErrorException('An error occurred while contacting the orchestrator');
             }
          )
@@ -140,7 +154,7 @@ export class QueryService {
       responseType: 'stream' 
     }).pipe(
             catchError((error:AxiosError)=>{
-                // this.logger.error(error.response?.data)
+                // this.logger.error(this.describeOrchestratorError(error))
                 throw new InternalServerErrorException('An error occurred while contacting the orchestrator');
             }
          )
@@ -207,9 +221,9 @@ export class QueryService {
       }
     }
 
-    async isSessionPending(sessionId:string){
-      const session = await this.prismaService.session.findUnique({ where: { id: sessionId } })
-      if (!session) throw new NotFoundException("can't send a follo up message for paused session")
+    async isSessionPending(sessionId:string, userId:number){
+      const session = await this.prismaService.session.findFirst({ where: { id: sessionId, userId } })
+      if (!session) throw new NotFoundException(`Session ${sessionId} not found`)
     }
 
     async getPendingReviews(){
