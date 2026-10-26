@@ -28,6 +28,8 @@ const ApiObj = {
     ingestion:{
         INGESTION: '/ingestion',
         UPLOAD: '/ingestion/upload',
+        DOCUMENTS: '/ingestion/documents',
+        DOCUMENT: (docId: string) => `/ingestion/documents/${encodeURIComponent(docId)}`,
     },
     health:{
         HEALTH: '/health',

@@ -4,6 +4,7 @@ import { jwtDecode } from "jwt-decode";
 import { fetchRequestPost, fetchRequestPostFormData } from "../../common/NetworkOps";
 import ApiObj from "../../common/ApiObj";
 import { showToastError, showToastSuccess } from "../../toastMessage/toast";
+import IndexedDocuments from "./IndexedDocuments";
 
 type SourceType = "pdf" | "url" | "markdown";
 type DocumentType = "contract" | "regulation" | "policy";
@@ -104,6 +105,8 @@ export default function IngestionForm() {
     const [success, setSuccess] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [warnings, setWarnings] = useState<string[]>([]);
+    // bumped after a successful upload so the "Indexed documents" list reloads
+    const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleAddSource = () => {
@@ -180,6 +183,7 @@ export default function IngestionForm() {
             setQueue([]);
             setSuccess(true);
             setWarnings(collectedWarnings);
+            setDocumentsRefreshKey((k) => k + 1);
             showToastSuccess("source updated successfully");
         } catch (err: any) {
             // the gateway sends { statusCode, message }; message may be a string or a list
@@ -368,6 +372,10 @@ export default function IngestionForm() {
                             </>
                         )}
                     </button>
+                </div>
+
+                <div className="mt-6">
+                    <IndexedDocuments namespace={namespace} refreshKey={documentsRefreshKey} />
                 </div>
             </div>
         </div>
