@@ -171,7 +171,9 @@ STEP 2 - OTHERWISE CHOOSE A SOURCE.
 
     async def prepare_retrieval(state: AgentState) -> dict:
         """Reset retrieval state once per incoming user turn."""
-        query = latest_human_query(state)
+        # The frame step may have rewritten the question so it stands on its own ("it" -> what it refers to);
+        # it is None unless localization is on, so otherwise the user's own message is used, as always.
+        query = state.get("rewritten_query") or latest_human_query(state)
         return {
             "original_query": query,
             "search_query": query,

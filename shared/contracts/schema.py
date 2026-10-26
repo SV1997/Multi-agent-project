@@ -71,6 +71,7 @@ class AgentAnswer(BaseModel):
     requires_human_review: bool = False
     conflict_detected: bool = False
     generated_at: datetime = Field(default_factory=datetime.utcnow)
+    debug: Optional[dict[str, Any]] = None  # the query frame and its DAG; only present when localization is on
 
 class AgentAnswerLLM(BaseModel):
     confidence: float
