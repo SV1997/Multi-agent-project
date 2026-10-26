@@ -16,14 +16,21 @@ async def retrieve_context(state:AgentState)-> dict:
         query = human_messages[-1].content if human_messages else state["messages"][-1].content
     namespace= state["domain"]
 
+    payload = {
+        "query": query,
+        "namespace": namespace,
+        "top_k": 5
+    }
+    # Categories narrow the search to one part of the domain (localized search). Without any, the request is
+    # exactly what it always was.
+    categories = state.get("localize_categories")
+    if categories:
+        payload["categories"] = categories
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             f"{RETRIVAL_SERVICE_URL}/api/v1/query",
-            json={
-                "query": query,
-                "namespace": namespace,
-                "top_k": 5
-            },
+            json=payload,
             headers={"x-internal-secret": INTERNAL_SHARED_SECRET}
         )
         response.raise_for_status()

@@ -31,3 +31,5 @@ class AgentState(TypedDict):
     thread_facts: str |None
     conversation_memories: list[str] |None
     search_failures: int
+    # categories the search is narrowed to (set by the query frame); None = search the whole domain
+    localize_categories: list[str] | None
