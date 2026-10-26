@@ -1,5 +1,5 @@
-import { Controller, Post, Body, UseGuards, Req, UseInterceptors, UploadedFiles } from '@nestjs/common';
-import {IngestionDto, UploadIngestionDto} from "./Dto/Ingestion.dto"
+import { Controller, Post, Get, Delete, Body, Param, Query, UseGuards, Req, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import {IngestionDto, UploadIngestionDto, DocumentsQueryDto, DocumentParamDto} from "./Dto/Ingestion.dto"
 import { AuthguardGuard } from 'src/guards/auth/authguard/authguard.guard';
 import { RoleguardGuard } from 'src/guards/role/roleguard/roleguard.guard';
 import { Roles } from 'src/guards/role/roleguard/role.decorator';
@@ -29,6 +29,18 @@ export class IngestionController {
     }))
     uploadFile(@Body() uploadIngestionDto:UploadIngestionDto ,@UploadedFiles() file:Express.Multer.File[],@Req() req:AuthenticatedRequest){
         return this.ingestionService.uploadFile(uploadIngestionDto,file,req.user.role, req.user.sub)
+    }
+
+    @Get('documents')
+    @UseGuards(AuthguardGuard)
+    listDocuments(@Query() query: DocumentsQueryDto, @Req() req: AuthenticatedRequest) {
+        return this.ingestionService.listDocuments(query.namespace, req.user.role)
+    }
+
+    @Delete('documents/:docId')
+    @UseGuards(AuthguardGuard)
+    deleteDocument(@Param() params: DocumentParamDto, @Query() query: DocumentsQueryDto, @Req() req: AuthenticatedRequest) {
+        return this.ingestionService.deleteDocument(params.docId, query.namespace, req.user.role, req.user.sub)
     }
 
 

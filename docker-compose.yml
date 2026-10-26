@@ -9,6 +9,8 @@ services:
       dockerfile: services/retrieval-service/Dockerfile
     env_file:
       - ./services/retrieval-service/.env
+    environment:
+      LOCALIZE: ${LOCALIZE:-off}
     ports:
       - "8001:8001"
 
@@ -27,6 +29,7 @@ services:
     env_file:
       - ./services/orchestrator/.env
     environment:
+      LOCALIZE: ${LOCALIZE:-off}
       RETRIVAL_SERVICE_URL: http://retrieval-service:8001
       EVALUATION_SERVICE_URL: http://retrieval-service:8004
       INGESTION_SERVICE_URL: http://ingestion-service:8002
