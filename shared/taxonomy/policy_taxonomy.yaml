@@ -1,0 +1,211 @@
+# DRAFT v1, built from the cleaned corpus inventory (25 Oct 2026). Documents are keyed by the file name the
+# chunks store as "source" (the stored doc_id is per chunk in this index, so it cannot be the key).
+# HR is worked out in detail. The other domains are deliberately coarse: one or two files each.
+version: 1
+
+hr:
+  categories:
+    leave:
+      description: "All leave types: entitlement, eligibility, carry forward, encashment, how to apply"
+      parents: []
+    earned_leave:
+      description: "Earned (privilege) leave: accrual, carry forward, encashment, notice before taking it"
+      parents: [leave]
+    casual_and_sick_leave:
+      description: "Casual and sick leave: entitlement, expiry at year end, medical certificate rules"
+      parents: [leave]
+    family_leave:
+      description: "Maternity, adoption and marriage leave"
+      parents: [leave]
+    comp_off_and_lwp:
+      description: "Compensatory off for extra work and leave without pay"
+      parents: [leave]
+    attendance_and_remote_work:
+      description: "Working hours, flexible hours, attendance, regularization, work from home and office attendance"
+      parents: []
+    payroll_and_tax:
+      description: "Salary payment, salary structure, salary slips, tax documents and statutory deductions"
+      parents: []
+    salary_payment:
+      description: "Salary credit date, payroll cutoff, salary structure, variable pay and deductions"
+      parents: [payroll_and_tax]
+    salary_slip_and_tax_docs:
+      description: "Salary slip contents and access, Form 16, tax proofs and tax computation"
+      parents: [payroll_and_tax]
+    provident_fund_and_gratuity:
+      description: "Provident fund and gratuity: eligibility, contributions, payout"
+      parents: [payroll_and_tax, benefits_and_expenses]   # second parent: asked both as "what is deducted from my salary" and "what benefits do I get"
+    benefits_and_expenses:
+      description: "Insurance, retirement benefits, reimbursements and business travel"
+      parents: []
+    medical_insurance:
+      description: "Group medical insurance: enrolment, dependants, insurance card, claims"
+      parents: [benefits_and_expenses]
+    reimbursements_and_travel:
+      description: "Expense claims, reimbursement limits and categories, business travel rules"
+      parents: [benefits_and_expenses]
+    employment_documents:
+      description: "Letters and certificates: employment verification, experience, relieving, salary certificate, offer, increment, joining letter, ID card"
+      parents: []
+    separation:
+      description: "Resignation, notice period, handover, exit clearance and final settlement"
+      parents: []
+    resignation_and_notice:
+      description: "How to resign, notice period length, notice buyout, notice during probation"
+      parents: [separation]
+    exit_and_settlement:
+      description: "Knowledge transfer, exit clearance, asset return and full and final settlement"
+      parents: [separation]
+    probation_and_performance:
+      description: "Probation and confirmation, performance cycle and ratings, increments, internal job postings"
+      parents: []
+    conduct_and_security:
+      description: "Code of conduct, background verification, information security and company equipment"
+      parents: []
+    hr_support_and_policy_admin:
+      description: "Raising HR requests, helpdesk categories, response times, escalation, policy exceptions and updates, who the policies cover"
+      parents: []
+    facilities_register:
+      description: "Register of employee floor seating and tickets resolved: lookup data, not policy"
+      parents: []
+  documents:
+    tmp5jdxnb7a.pdf:
+      title: "NovaSphere HR Policy and Employee Services Handbook"
+      categories: [earned_leave, casual_and_sick_leave, family_leave, comp_off_and_lwp, attendance_and_remote_work,
+                   salary_payment, salary_slip_and_tax_docs, provident_fund_and_gratuity, medical_insurance,
+                   reimbursements_and_travel, employment_documents, resignation_and_notice, exit_and_settlement,
+                   probation_and_performance, conduct_and_security, hr_support_and_policy_admin]
+    tmppcv6jeno.pdf:
+      title: "AcmeNova Short Demo HR Handbook"
+      categories: [earned_leave, casual_and_sick_leave, attendance_and_remote_work, salary_payment,
+                   salary_slip_and_tax_docs, medical_insurance, reimbursements_and_travel, resignation_and_notice,
+                   exit_and_settlement, probation_and_performance, conduct_and_security, hr_support_and_policy_admin]
+    tmpueqswgxe.md:
+      title: "HR Facilities and Ticket-Resolution Register"
+      categories: [facilities_register]
+  mixed: [tmp5jdxnb7a.pdf, tmppcv6jeno.pdf]
+
+finance:
+  categories:
+    procurement:
+      description: "Buying goods and services: thresholds, quotes, approvals, suppliers, conflicts of interest and compliance"
+      parents: []
+    purchasing_procedures:
+      description: "Purchase thresholds, requisitions, purchase orders, roles of purchaser, preparer and approver"
+      parents: [procurement]
+    vendor_selection:
+      description: "Choosing suppliers: competitive quotes, preferred vendors, vendor diversity, selection justification"
+      parents: [procurement]
+    conflict_of_interest:
+      description: "Conflict of interest standards for people who buy or approve purchases"
+      parents: [procurement]
+    federal_funds_compliance:
+      description: "Rules for federal and sponsored funds: uniform guidance, debarment, record retention, audit"
+      parents: [procurement]
+    contracts_and_agreements:
+      description: "Contract terms, signature thresholds, contract types such as time and materials, sample contract language"
+      parents: [procurement]
+    special_purchases:
+      description: "Purchases with extra restrictions: human subjects, export controls, sanctions screening, law enforcement items"
+      parents: [procurement]
+    subrecipients_and_contractors:
+      description: "Telling a subrecipient from a contractor, and the checklist and examples for that decision"
+      parents: [procurement]
+    expense_reimbursement:
+      description: "Reimbursing employee expenses and travel"
+      parents: []
+    travel_expenses:
+      description: "Business travel costs: transport, lodging, meals, advances and what is allowable"
+      parents: [expense_reimbursement]
+    expense_claims_and_receipts:
+      description: "How to claim expenses: receipts, supporting documents, deadlines, credit card use"
+      parents: [expense_reimbursement]
+    non_reimbursable_expenses:
+      description: "Personal items and costs that will not be reimbursed"
+      parents: [expense_reimbursement]
+  documents:
+    tmpsah746ho.pdf:
+      title: "Harvard University Procurement Policy"
+      categories: [purchasing_procedures, vendor_selection, conflict_of_interest, federal_funds_compliance,
+                   contracts_and_agreements, special_purchases, subrecipients_and_contractors]
+    tmps8awxzxj.pdf:
+      title: "Harvard Expense Reimbursement Policy FY2017"
+      categories: [travel_expenses, expense_claims_and_receipts, non_reimbursable_expenses]
+  mixed: [tmpsah746ho.pdf, tmps8awxzxj.pdf]
+
+legal:
+  categories:
+    data_protection_law:
+      description: "Laws on how personal data may be collected, used, stored and transferred"
+      parents: []
+    scope_and_background:
+      description: "What the law covers, definitions, history, who it applies to"
+      parents: [data_protection_law]
+    data_subject_rights:
+      description: "Rights of individuals over their personal data: access, erasure, consent, complaints"
+      parents: [data_protection_law]
+    controller_and_processor_duties:
+      description: "Obligations of organisations that handle personal data: principles, lawful basis, security, officers"
+      parents: [data_protection_law]
+    cross_border_transfers:
+      description: "Sending personal data to other countries"
+      parents: [data_protection_law]
+    enforcement_and_penalties:
+      description: "Supervisory bodies, fines, remedies and liability"
+      parents: [data_protection_law]
+    non_content:
+      description: "Navigation menus, promotional blocks, reference lists and footers of a web page; carries no rules"
+      parents: []
+  documents:
+    General_Data_Protection_Regulation:
+      title: "General Data Protection Regulation (Wikipedia)"
+      categories: [scope_and_background, data_subject_rights, controller_and_processor_duties, cross_border_transfers,
+                   enforcement_and_penalties, non_content]
+    "Digital_Personal_Data_Protection_Act,_2023":
+      title: "Digital Personal Data Protection Act 2023 (Wikipedia)"
+      categories: [scope_and_background, data_subject_rights, controller_and_processor_duties, cross_border_transfers,
+                   enforcement_and_penalties, non_content]
+  mixed: [General_Data_Protection_Regulation, "Digital_Personal_Data_Protection_Act,_2023"]
+
+support:
+  categories:
+    password_and_access_policy:
+      description: "Password rules, administrative access, multi-factor and who may get access to what"
+      parents: []
+    software_and_asset_requests:
+      description: "Requesting new software, devices and IT assets, and the rules for company equipment"
+      parents: []
+    network_and_vpn:
+      description: "VPN and network access and who to contact for network problems"
+      parents: []
+    backup_and_recovery:
+      description: "Database backups, retention periods and restore requests"
+      parents: []
+    customer_support_practice:
+      description: "Good practice for running customer support: channels, response times, self-service, metrics"
+      parents: []
+    non_content:
+      description: "Navigation menus, promotional blocks, reference lists and footers of a web page; carries no rules"
+      parents: []
+  documents:
+    tmpk4v_ei9s.md:
+      title: "IT Asset and Security Quick Guide (IT-SEC-DEMO-02)"
+      categories: [password_and_access_policy, software_and_asset_requests, network_and_vpn, backup_and_recovery]
+    customer-support:
+      title: "IBM: What is customer support"
+      categories: [customer_support_practice, non_content]
+  mixed: [tmpk4v_ei9s.md, customer-support]
+
+engineering:
+  categories:
+    container_build_practices:
+      description: "Writing Dockerfiles and building container images: instructions, layers, size, security"
+      parents: []
+    non_content:
+      description: "Navigation menus, promotional blocks, reference lists and footers of a web page; carries no rules"
+      parents: []
+  documents:
+    best-practices:
+      title: "Docker build best practices"
+      categories: [container_build_practices, non_content]
+  mixed: [best-practices]

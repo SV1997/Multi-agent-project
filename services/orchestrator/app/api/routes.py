@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from ..core.security import verify_internal_secret
 import sys
 import os
+import logging
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
 from shared.contracts.schema import OrchestratorRequest, AgentAnswer, PausedForReviewResponse, RequestResume
 # from ..graph.supervisor import supervisor
@@ -12,9 +13,32 @@ import json
 from uuid import uuid4
 from langgraph.types import Command
 from ..main import app_state
+# Env values are strings (None when unset); the graph does arithmetic on this, so it must be an int.
+TOOL_CALL_REMAINING = int(os.getenv("TOOL_CALL_REMAINING", "6"))
 router = APIRouter()
 
+logger = logging.getLogger(__name__)
+
 SUPERVISOR_KEY = "supervisor"
+
+TEMPLATE_ERROR_ANSWER = (
+    "I ran into a technical issue while processing your request. "
+    "Please try again in a moment or rephrase your question."
+)
+
+def _template_error_response(domain: str = "unknown") -> dict:
+    """Fallback response shape matching AgentAnswer, used whenever a
+    route handler hits an unexpected error instead of letting it surface
+    as a raw 500 or crash mid-stream."""
+    return {
+        "domain": domain,
+        "answer": TEMPLATE_ERROR_ANSWER,
+        "sources": [],
+        "context": [],
+        "confidence": 0.0,
+        "requires_human_review": True,
+        "generated_at": datetime.now(),
+    }
 
 async def event_generator(req:OrchestratorRequest):
     thread_id = req.thread_id
@@ -24,64 +48,92 @@ async def event_generator(req:OrchestratorRequest):
         "messages":[HumanMessage(content=req.query)],
         "domain": None,
         "retrieved_context": [],
-        "tool_calls_remaining":3,
+        "tool_calls_remaining":TOOL_CALL_REMAINING,
+        "react_trace": [],
         "requires_human_review": False,
         "final_answer": None,
-        "allowed_namespace": req.allowed_namespace
+        "allowed_namespace": req.allowed_namespace,
+        "employee_email":req.employee_email,
+        "turn":req.turn
     }
-    steps_list = ["classify_domain","check_authorization","legal_agent","hr_agent","support_agent","coding_agent","engineering_agent", "retrieve",]
+    steps_list = ["classify_domain","check_authorization","legal_agent","hr_agent","support_agent","finance_agent","engineering_agent", "prepare_retrieval", "retrieve", "grade_retrieval", "rewrite_query", "insufficient_evidence"]
     seen_stages = set()
-    
-    async for event in supervisor.astream_events(initial_state, version="v2", config=config, subgraphs=True):
-        # print(event['event'])
-        if event["event"] == "on_chain_start":
-            node_name = event.get("name")
-            if node_name in steps_list and node_name not in seen_stages:
-                seen_stages.add(node_name)
-                yield f"data:{json.dumps({'node_name': node_name})}\n\n"
+    emitted_final_tokens = False
 
-        if event["event"] == "on_custom_event":   # verify this exact name for your version
-            custom_data = event.get("data", {})
-            print(custom_data)
-            if "tool_call" in custom_data:
-                yield f"data:{json.dumps({'tool_call': custom_data['tool_call']})}\n\n"
+    try:
+        async for event in supervisor.astream_events(initial_state, version="v2", config=config, subgraphs=True):
+            # print(event['event'])
+            if event["event"] == "on_chain_start":
+                node_name = event.get("name")
+                if node_name in steps_list and node_name not in seen_stages:
+                    seen_stages.add(node_name)
+                    yield f"data:{json.dumps({'node_name': node_name})}\n\n"
 
-        if event["event"] == "on_chat_model_stream":
-            tags = event.get("tags", [])
-            if "final-answer" in tags:
-                chunk = event["data"]["chunk"]
-                if chunk.content:
-                    yield f"data:{json.dumps({'token': chunk.content})}\n\n"
-        
-    state_snapshot = await supervisor.aget_state(config)
-    if state_snapshot.interrupts:
-        interrupt_data = state_snapshot.interrupts[0].value
-        yield f"data:{json.dumps({'status':'paused_for_review', 'review_payload':interrupt_data, 'thread_id':thread_id})}\n\n"
-    else:
-        if state_snapshot.values.get("authorization_denied"):
-            denial_text = state_snapshot.values["messages"][-1].content
-            yield f"data:{json.dumps({'token': denial_text})}\n\n"
+            if event["event"] == "on_custom_event":   # verify this exact name for your version
+                custom_data = event.get("data", {})
+                print(custom_data)
+                if "react_step" in custom_data:
+                    yield f"data:{json.dumps({'react_step': custom_data['react_step']})}\n\n"
+                if "observation" in custom_data:
+                    yield f"data:{json.dumps({'observation': custom_data['observation']})}\n\n"
+                if "tool_call" in custom_data:
+                    yield f"data:{json.dumps({'tool_call': custom_data['tool_call']})}\n\n"
+
+            if event["event"] == "on_chat_model_stream":
+                tags = event.get("tags", [])
+                if "final-answer" in tags:
+                    chunk = event["data"]["chunk"]
+                    if chunk.content:
+                        emitted_final_tokens = True
+                        yield f"data:{json.dumps({'token': chunk.content})}\n\n"
+
+        state_snapshot = await supervisor.aget_state(config)
+        if state_snapshot.interrupts:
+            interrupt_data = state_snapshot.interrupts[0].value
+            yield f"data:{json.dumps({'status':'paused_for_review', 'review_payload':interrupt_data, 'thread_id':thread_id})}\n\n"
+        else:
+            if state_snapshot.values.get("authorization_denied"):
+                denial_text = state_snapshot.values["messages"][-1].content
+                yield f"data:{json.dumps({'token': denial_text})}\n\n"
+            elif not emitted_final_tokens:
+                final_answer = (state_snapshot.values or {}).get("final_answer") or {}
+                answer_text = final_answer.get("answer")
+                if answer_text:
+                    yield f"data:{json.dumps({'token': answer_text})}\n\n"
+            yield "data:[DONE]\n\n"
+    except Exception:
+        logger.exception("event_generator failed for thread_id '%s'.", thread_id)
+        if not emitted_final_tokens:
+            yield f"data:{json.dumps({'token': TEMPLATE_ERROR_ANSWER})}\n\n"
         yield "data:[DONE]\n\n"
 
 async def event_generator_resume(req:RequestResume):
     config = {"configurable":{"thread_id": req.thread_id}}
     supervisor = app_state[SUPERVISOR_KEY]
+    emitted_final_tokens = False
 
-    async for event in supervisor.astream_events(Command(resume=req.human_response.model_dump()),version="v2", config=config):
-        if event["event"] == "on_chat_model_stream":
-            chunk = event["data"]["chunk"]
-            if chunk.content:
-                yield f"data:{json.dumps({'token': chunk.content, 'requires_human_review': False})}\n\n"
+    try:
+        async for event in supervisor.astream_events(Command(resume=req.human_response.model_dump()),version="v2", config=config):
+            if event["event"] == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                if chunk.content:
+                    emitted_final_tokens = True
+                    yield f"data:{json.dumps({'token': chunk.content, 'requires_human_review': False})}\n\n"
 
-    state_snapshot = await supervisor.aget_state(config)
-    if state_snapshot.interrupts:
-        interrupt_data = state_snapshot.interrupts[0].value
-        yield f"data:{json.dumps({'status':'paused_for_review', 'review_payload':interrupt_data, 'thread_id':req.thread_id})}\n\n"
-    else:
-        final_answer = (state_snapshot.values or {}).get("final_answer") or {}
-        answer_text = final_answer.get("answer")
-        if answer_text:
-            yield f"data:{json.dumps({'token': answer_text, 'requires_human_review': False})}\n\n"
+        state_snapshot = await supervisor.aget_state(config)
+        if state_snapshot.interrupts:
+            interrupt_data = state_snapshot.interrupts[0].value
+            yield f"data:{json.dumps({'status':'paused_for_review', 'review_payload':interrupt_data, 'thread_id':req.thread_id})}\n\n"
+        else:
+            final_answer = (state_snapshot.values or {}).get("final_answer") or {}
+            answer_text = final_answer.get("answer")
+            if answer_text:
+                yield f"data:{json.dumps({'token': answer_text, 'requires_human_review': False})}\n\n"
+            yield "data:[DONE]\n\n"
+    except Exception:
+        logger.exception("event_generator_resume failed for thread_id '%s'.", req.thread_id)
+        if not emitted_final_tokens:
+            yield f"data:{json.dumps({'token': TEMPLATE_ERROR_ANSWER, 'requires_human_review': False})}\n\n"
         yield "data:[DONE]\n\n"
 
 @router.post("/query",
@@ -92,32 +144,41 @@ async def orchatrator_query(req:OrchestratorRequest):
     thread_id = req.thread_id if req.thread_id else str(uuid4())
     config = {"configurable":{"thread_id": thread_id}}
     supervisor = app_state[SUPERVISOR_KEY]
-    result = await supervisor.ainvoke({
-        "messages":[HumanMessage(content=req.query)],
-        "domain": None,
-        "retrieved_context": [],
-        "tool_calls_remaining":3,
-        "requires_human_review": False,
-        "final_answer": None,
-        "allowed_namespace": req.allowed_namespace
-    }, config=config)
-    if "__interrupt__" in result:
-        print(True if "__interrupt__" in result else None)
-        return {
-            "review_payload":[interrupt.value for interrupt in result["__interrupt__"]],
-            "thread_id":thread_id
-        }
+    try:
+        result = await supervisor.ainvoke({
+            "messages":[HumanMessage(content=req.query)],
+            "domain": None,
+            "retrieved_context": [],
+            "tool_calls_remaining":TOOL_CALL_REMAINING,
+            "react_trace": [],
+            "requires_human_review": False,
+            "final_answer": None,
+            "allowed_namespace": req.allowed_namespace,
+            "employee_email":req.employee_email,
+            "turn": req.turn
+        }, config=config)
+        if "__interrupt__" in result:
+            print(True if "__interrupt__" in result else None)
+            return {
+                "review_payload":[interrupt.value for interrupt in result["__interrupt__"]],
+                "thread_id":thread_id
+            }
 
-    # print(result, "67")
-    final_res={
-        "domain": result["domain"],
-        "answer": result["messages"][-1].content,
-        "sources": [chunk.get("source", "unknown") for chunk in result["retrieved_context"]],
-        "confidence":result["final_answer"]["confidence"],
-        "requires_human_review": result["requires_human_review"],
-        "generated_at": datetime.now()
-    }
-    return final_res
+        # print(result, "67")
+        final_res={
+            "domain": result.get("domain") or "unclassified",
+            "answer": result["messages"][-1].content,
+            "sources": [chunk.get("source", "unknown") for chunk in result["retrieved_context"]],
+            "context": [chunk.get("content", "") for chunk in result["retrieved_context"]],
+            "confidence":result["final_answer"]["confidence"],
+            "requires_human_review": result["requires_human_review"],
+            "conflict_detected": result["final_answer"].get("conflict_detected", False),
+            "generated_at": datetime.now()
+        }
+        return final_res
+    except Exception:
+        logger.exception("orchatrator_query failed for thread_id '%s'.", thread_id)
+        return _template_error_response()
 
 @router.post(
     "/query/resume",
@@ -128,18 +189,24 @@ async def resume_query(req: RequestResume):
     print(req)
     config = {"configurable": {"thread_id": req.thread_id}}
     supervisor = app_state[SUPERVISOR_KEY]
-    result = await supervisor.ainvoke(
-        Command(resume=req.human_response.model_dump()),
-        config=config
-    )
-    return {
-        "domain": result["domain"],
-        "answer": result["final_answer"]["answer"], 
-        "sources": [chunk.get("source", "unknown") for chunk in result["retrieved_context"]],
-        "confidence": result["final_answer"]["confidence"],
-        "requires_human_review": result["requires_human_review"],
-        "generated_at": datetime.now()
-    }
+    try:
+        result = await supervisor.ainvoke(
+            Command(resume=req.human_response.model_dump()),
+            config=config
+        )
+        return {
+            "domain": result.get("domain") or "unclassified",
+            "answer": result["final_answer"]["answer"],
+            "sources": [chunk.get("source", "unknown") for chunk in result["retrieved_context"]],
+            "context": [chunk.get("content", "") for chunk in result["retrieved_context"]],
+            "confidence": result["final_answer"]["confidence"],
+            "requires_human_review": result["requires_human_review"],
+            "conflict_detected": result["final_answer"].get("conflict_detected", False),
+            "generated_at": datetime.now()
+        }
+    except Exception:
+        logger.exception("resume_query failed for thread_id '%s'.", req.thread_id)
+        return _template_error_response()
 
 @router.post(
     "/query/stream",

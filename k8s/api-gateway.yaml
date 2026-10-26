@@ -12,9 +12,11 @@ spec:
       labels:
         app: api-gateway
     spec:
+      imagePullSecrets:            # ← imagePullSecrets goes HERE
+        - name: ecr-secret
       containers:
         - name: api-gateway
-          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/api-gateway:latest
+          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/api-gateway:ce27ab57ed2c10d339c1b1674bd1e65db7b4b774
           ports:
             - containerPort: 3000
           envFrom:

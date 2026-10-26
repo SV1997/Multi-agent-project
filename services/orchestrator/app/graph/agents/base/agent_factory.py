@@ -1,18 +1,25 @@
 from langgraph.graph import StateGraph, START, END
 from ...state import AgentState
 from langgraph.prebuilt import ToolNode
-from langchain.messages import HumanMessage, SystemMessage, AIMessage
+from langchain.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from pydantic import BaseModel, Field
 from .nodes import retrieve_context, build_context_prompt
 import sys
 import os
+import logging
+from groq import APIError as GroqAPIError
 from langchain_core.callbacks import adispatch_custom_event
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../.."))
-from shared.contracts.schema import AgentAnswer, AgentAnswerLLM
+from .nodes import retrieve_sql_context
+from shared.contracts.schema import AgentAnswer, AgentAnswerLLM, RetrievalAssessment, RetrievalPlan, RewrittenQuery, SQLQuerySelection
+from langchain_core.runnables import RunnableConfig
+from ...context_policy import ledger_first, is_ledger
+logger = logging.getLogger(__name__)
 
 def route_after_reason(state:AgentState)-> str:
     msg = state["messages"][-1]
     if hasattr(msg, "tool_calls") and msg.tool_calls:
-        if state["tool_calls_remaining"]>0:
+        if state["tool_calls_remaining"]>=0:
             return "tools"
         # Out of tool calls but the model still emitted one (unexecuted) -
         # loop back to force a final, tool-less answer instead of ending
@@ -21,20 +28,344 @@ def route_after_reason(state:AgentState)-> str:
     return "end"
 
 
+def apply_conflict_policy(requires_human_review: bool, conflict_detected: bool) -> bool:
+    """Sources that disagree always need a human to confirm the answer."""
+    return requires_human_review or conflict_detected
 
-def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: str = ""):
+
+SQL_FUNCTION_DESCRIPTIONS = {
+    "leave_balance": "the user's remaining leave/vacation days",
+    "CTC_data": "the user's compensation/CTC figure",
+    "get_ticket_status": "status of the user's most recent support ticket",
+    "contract_tracking": "status/details of a specific legal contract, identified by contract number",
+    "deployment_status": "status of the user's most recent deployment",
+    "claims_by_status_for_team": "team-wide COUNT and total amount of expense claims per status (manager-only aggregate, optional team)",
+    "leave_taken_by_month": "team-wide leave days taken per month for a year (manager-only aggregate, optional team and year)",
+    "contracts_expiring_by_year": "how many contracts expire in a year, their total value and the list with source quotes (manager-only aggregate, optional year)",
+    "claim_tracking": "status/details of a specific expense claim (by claim ID), or the employee's most recent claim if no ID is given",
+}
+def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: str = "", retrieval_method: list[str] = None, sql_function:list[str]=None):
     tool = tools or []
+    retrieval_method = retrieval_method or []
     graph = StateGraph(AgentState)
+    print(retrieval_method)
+
+    structured_output_llm = llm.model_copy(update={"streaming": False, "reasoning_effort": "low"})
+
+    sql_selection_llm = llm.model_copy(update={"streaming": False})
+
+
+    retrieval_grader = sql_selection_llm.with_structured_output(
+        RetrievalAssessment, method="json_schema", strict=True
+    ).with_config(tags=["retrieval-grade"]).with_retry(stop_after_attempt=3)
+    query_rewriter = structured_output_llm.with_structured_output(
+        RewrittenQuery, method="json_schema", strict=True
+    ).with_config(tags=["query-rewrite"]).with_retry(stop_after_attempt=3)
+
+    retrieval_planner = sql_selection_llm.with_structured_output(RetrievalPlan,method="json_schema", strict=True).with_config(tags=["selecting-retriever"]).with_retry(stop_after_attempt=3)
+    Sql_structured_llm = sql_selection_llm.with_structured_output(SQLQuerySelection, method="json_schema", strict=True).with_config(tags=["sql-retriever"]).with_retry(stop_after_attempt=3)
+
+    def conversation_so_far(state, max_items=6) -> str:
+        items = []
+        for m in ledger_first(state["messages"])[:-1]:         
+            if is_ledger(m):
+                items.append(("Summary", m.content))
+            elif isinstance(m, HumanMessage):
+                items.append(("User", m.content))
+            elif isinstance(m, AIMessage) and m.content and not m.tool_calls:
+                items.append(("Assistant", m.content[:300]))
+        summary = [i for i in items if i[0] == "Summary"][-1:]   # latest summary only
+        recent = [i for i in items if i[0] != "Summary"][-max_items:]
+        return "\n".join(f"{label}: {text}" for label, text in summary + recent) or "none"
+    
+    async def plan_retrieval(state)-> dict:
+        available_ret = ", ".join(retrieval_method) or "none"
+        memory_text = state.get("long_term_memory") or "none"
+        history = conversation_so_far(state)
+        thread_facts = state.get("thread_facts") or "none"
+        conversation_memories = state.get("conversation_memories") or ""
+        prompt = f"""You choose the retrieval method this agent should use to answer the user's question.
+
+STEP 1 - CHECK WHAT IS ALREADY KNOWN. This comes before every other rule below.
+Facts the user stated in this conversation (newest values, authoritative):
+{thread_facts}
+
+{conversation_memories}
+
+Facts already known about this user (from long-term memory):
+{memory_text}
+
+Conversation so far (earlier summary, then recent turns):
+{history}
+
+If the facts, memories or conversation above contain the answer to the user's question, choose none.
+This applies to personal details the user told us about themselves (office or seat location, vehicle
+number, manager, employee ID, items they said they lost or claimed, preferences), even if the question
+sounds like it could also be answered from a database or documents. A later memory replaces an earlier
+one for the same detail.
+The only exception: live records that change over time and are kept in company systems (leave balance,
+pay/CTC, ticket or claim status) and company policy. For those, still choose sql or vector even if an
+earlier turn mentioned them.
+
+STEP 2 - OTHERWISE CHOOSE A SOURCE.
+        Pick exactly one source from: none, sql, vector.
+
+        - sql: the question asks about a specific person's or entity's live, current, absolute
+          data - a number, balance, status, or record that changes over time and belongs to one
+          individual (e.g. "how many leaves/days do I have", "what's my balance", "status of my
+          request", "for employee E1042"). If the question refers to "my"/"I" and asks for a
+          concrete figure or status, prefer sql over none.
+          Ticket-record rule: ALWAYS choose sql when the user asks about an existing support
+          ticket, including "my ticket", "latest ticket", a ticket ID, or a ticket's current
+          status/details (open, pending, resolved, rejected, or similar). Never choose none or
+          vector for a request that needs the user's actual ticket record.
+        - sql (aggregates): a team-wide count/total over many records (e.g. claims per status for a team,
+          leave days taken per month) is also sql when this agent has such a function; access is
+          enforced by the function itself.
+        - vector: the question is about static, general reference material - policy, process,
+          documentation, how-to, definitions - the kind of content that lives in a knowledge base
+          and doesn't depend on which specific person is asking. For tickets, choose vector only
+          for general ticket policy, workflow, SLA, escalation, or documentation questions that
+          do not ask for an actual ticket record or its current status.
+        - none: no lookup is needed - the answer is already in the facts or memories above (STEP 1), or the
+          question is answerable from general knowledge (greetings, clarifying questions, or facts that
+          aren't domain- or person-specific).
+
+        Definitional rule: a question phrased as "what is X", "what does X mean", "explain X",
+        or asking about a general concept, term, law, or regulation (e.g. "what is GDPR", "what
+        is the leave policy") is NEVER sql, even if X sounds like it could relate to a record
+        type this agent has SQL access to. Only choose sql when the question asks for a specific
+        person's or entity's actual current data/record (a number, balance, status, or a named
+        record like a contract number or ticket ID) - not when it's asking what something is or
+        how something works in general. When unsure between sql and vector, prefer vector.
+
+        This agent is described as follows - use it to judge what counts as "specific data" for sql:
+        {system_prompt}
+
+        Only choose a source that is actually available to this agent: {available_ret}.
+        """
+
+        try:
+
+            assessment = await retrieval_planner.ainvoke([
+                SystemMessage(content=(prompt)),
+                HumanMessage(content=(f"Available sources: {available_ret}\n\nUser question: {state.get('original_query', '')}"))
+            ])
+        except GroqAPIError:
+            logger.exception(
+                "Groq retrieval-planning generation failed for domain '%s'; "
+                "defaulting to vector if available.", domain_name
+            )
+            fallback_source = "vector" if "vector" in retrieval_method else "none"
+            return {"retrieval_source": fallback_source, "retrieval_plan_reason": "planning failed; defaulted"}
+        source = assessment.source
+        if source=="sql" and "sql" not in retrieval_method:
+            source ="vector" if "vector" in retrieval_method else "none"
+        print(source, "source orchetrator 109")
+        return {"retrieval_source":source, "retrieval_plan_reason":assessment.reason}
+        
+
+    def latest_human_query(state: AgentState) -> str:
+        human_messages = [message for message in state["messages"] if isinstance(message, HumanMessage)]
+        return human_messages[-1].content if human_messages else ""
+
+    async def prepare_retrieval(state: AgentState) -> dict:
+        """Reset retrieval state once per incoming user turn."""
+        query = latest_human_query(state)
+        return {
+            "original_query": query,
+            "search_query": query,
+            "retrieval_attempts": 0,
+            "max_retrieval_attempts": 3,
+            "retrieval_quality": None,
+            "retrieval_assessment": None,
+            "retrieval_can_use_tool": False,
+        }
+
+    async def grade_retrieval(state: AgentState) -> dict:
+        chunks = state.get("retrieved_context") or []
+        evidence = "\n\n".join(
+            f"[Source {index}: {chunk.get('source', 'unknown')}]\n{chunk.get('content', '')[:1200]}"
+            for index, chunk in enumerate(chunks, 1)
+        ) or "No passages were returned."
+        available_tools = "\n".join(
+            f"- {available_tool.name}: {available_tool.description}"
+            for available_tool in tool
+        ) or "No live tools are available."
+        assessment = await retrieval_grader.ainvoke([
+            SystemMessage(content=(
+                "You grade retrieval evidence for a RAG assistant. Mark it relevant only "
+                "when the passages contain factual support for answering the user's actual "
+                "question. Do not treat a merely related topic as sufficient evidence. "
+                "Set can_be_answered_by_tool to true only if a listed live tool directly "
+                "performs the action requested by the user; otherwise set it to false."
+            )),
+            HumanMessage(content=(
+                f"Original question: {state.get('original_query', '')}\n"
+                f"Search query used: {state.get('search_query', '')}\n\n"
+                f"Available live tools:\n{available_tools}\n\n"
+                f"Retrieved passages:\n{evidence}"
+            )),
+        ])
+        return {
+            "retrieval_quality": "relevant" if assessment.relevant else "insufficient",
+            "retrieval_assessment": assessment.reason,
+            "retrieval_can_use_tool": assessment.can_be_answered_by_tool,
+        }
+
+    async def rewrite_query(state: AgentState) -> dict:
+        retrieval_attempts = state.get("retrieval_attempts",0)+1
+        rewritten = await query_rewriter.ainvoke([
+            SystemMessage(content=(
+                "Rewrite the user's question for vector retrieval. Preserve all named entities, "
+                "employee IDs, dates, and constraints. Return only a search query; do not answer."
+            )),
+            HumanMessage(content=(
+                f"Original question: {state.get('original_query', '')}\n"
+                f"Previous search query: {state.get('search_query', '')}\n"
+                f"Why it was insufficient: {state.get('retrieval_assessment', '')}"
+            )),
+        ])
+        return {"search_query": rewritten.search_query, "retrieval_attempts":retrieval_attempts}
+
+    def route_after_sql(state: AgentState) -> str:
+        # SQL retrieval is deterministic - the only "insufficient" case is an
+        # actual error (unknown/misrouted function), not a fuzzy relevance
+        # call, so no LLM grading is needed here. A clean "no record found"
+        # result is a legitimate answer and is left to reason() to report.
+        # An sql:error here usually means plan_retrieval misrouted a general/
+        # definitional question to sql - fall back to vector once (same
+        # fallback_used guard as route_after_grading) instead of dead-ending
+        # on insufficient_evidence when vector might answer it fine.
+        chunks = state.get("retrieved_context") or []
+        if any(chunk.get("source") == "sql:error" for chunk in chunks):
+            if not state.get("fallback_used") and "vector" in retrieval_method:
+                return "fallback_to_vector"
+            return "insufficient_evidence"
+        return "reason"
+
+    def route_after_grading(state: AgentState) -> str:
+        if state.get("retrieval_quality") == "relevant" or state.get("retrieval_can_use_tool"):
+            return "reason"
+        exhausted= state.get("retrieval_attempts", 0) >= state.get("max_retrieval_attempts", 3)
+        if not exhausted and state.get("retrieval_source")=="vector":
+            return "rewrite_query"
+        if not state.get("fallback_used") and "sql" in retrieval_method and "vector" in retrieval_method:
+            current = state.get("retrieval_source")
+            if current == "sql":
+                return "fallback_to_vector"
+            elif current == "vector" and exhausted:
+                return "fallback_to_sql"
+        return "insufficient_evidence"
+
+    def insufficient_evidence(state: AgentState) -> dict:
+        answer = (
+            "I couldn't find enough relevant information in the authorized knowledge base "
+            "to answer this reliably. Please provide a more specific question or ask an "
+            "authorized reviewer for help."
+        )
+        return {
+            "messages": [AIMessage(content=answer)],
+            "final_answer": {
+                "domain_name": domain_name,
+                "answer": answer,
+                "sources": [],
+                "confidence": 0.0,
+                "context": [chunk.get("content", "") for chunk in (state.get("retrieved_context") or [])],
+                "requires_human_review": False,
+            },
+            "requires_human_review": False,
+        }
+
+    def route_after_planning(state:AgentState)-> str:
+        source = state.get("retrieval_source")
+        print(source)
+        if(source =="sql"):
+            return "sql_retrieval"
+        elif(source=="vector"):
+            return "vector_retrieval"
+        else: 
+            return "none"
+    async def sql_retrieve(state:AgentState)->dict:
+        function_list = "\n".join(f"{i}. {name} - {SQL_FUNCTION_DESCRIPTIONS[name]}" for i,name in enumerate(sql_function, 1))
+        res = await Sql_structured_llm.ainvoke(
+            [
+                SystemMessage(content=f"""
+                Choose exactly one SQL function that directly answers the user's query.
+                query_names are:
+                {function_list}
+                you have to choose from above provded functions only
+Pick the single function that most directly answers the question.
+For any query about the user's ticket, latest ticket, existing ticket, ticket ID, or
+ticket status, ALWAYS choose get_ticket_status. Never choose another function for a
+ticket-record query.
+For contract_tracking, include params={{"contract_number": "<the number mentioned>"}}.
+For claim_tracking, include params={{"claim_id": "<the id mentioned>"}} if the question
+names a specific claim ID; if it just asks about "my claim" or "my latest claim" with no
+ID given, use claim_tracking with empty params ({{}}) - it will look up the employee's
+most recent claim on its own.
+For claims_by_status_for_team and leave_taken_by_month, include params={{"team": "<hr_team|finance_team|legal_team|support_team|engineering_team>"}} only if the question names a team, and
+for leave_taken_by_month add "year" only if a year is named; otherwise leave them out.
+For contracts_expiring_by_year, include params={{"year": "<YYYY>"}} only if a year is named.
+For all other functions, params should be empty ({{}}).
+Never invent a contract number or claim ID that is not explicitly present in the question.
+                
+"""),
+                HumanMessage(content=f"{state.get("search_query")}")
+            ]
+        )
+        if res.query_name not in sql_function:
+            return {"retrieved_context": [{"source": "sql:error", "content": "Selected function is not available for this domain."}]}
+        
+        sql_result= await retrieve_sql_context(state, res.query_name, res.params)
+        return sql_result
+
+    async def fallback_to_vector(state:AgentState)->dict:
+        return {"retrieval_source":"vector", "retrieval_attempts":0, "fallback_used":True}
+
+    async def fallback_to_sql(state:AgentState)->dict:
+        return {"retrieval_source":"sql", "retrieval_attempts":0, "fallback_used":True}
+
+    graph.add_node("sql_retrieval", sql_retrieve)
+    graph.add_node("plan_retrieval",plan_retrieval)
     graph.add_node("retrieve", retrieve_context)
-    structured_llm = llm.with_structured_output(AgentAnswerLLM, method="json_schema", strict=True).with_config(tags=["metadata-only"])
-    llm_with_tools = (llm.bind_tools(tools) if tool else llm).with_config(tags=["tool-decision"])
+    graph.add_node("prepare_retrieval", prepare_retrieval)
+    graph.add_node("grade_retrieval", grade_retrieval)
+    graph.add_node("rewrite_query", rewrite_query)
+    graph.add_node("fallback_to_vector",fallback_to_vector)
+    graph.add_node("fallback_to_sql",fallback_to_sql)
+    graph.add_node("insufficient_evidence", insufficient_evidence)
+    structured_llm = structured_output_llm.with_structured_output(AgentAnswerLLM, method="json_schema", strict=True).with_config(tags=["metadata-only"]).with_retry(stop_after_attempt=3)
+
+    llm_with_tools = (structured_output_llm.bind_tools(tools) if tools else structured_output_llm).with_config(tags=["tool-decision"])
+
     plain_llm = llm.with_config(tags=["final-answer"])
 
-    async def reason(state:AgentState)-> dict:
+    async def safe_plain_answer(messages):
+        """plain_llm.ainvoke with a graceful fallback if Groq still rejects
+        the generation (e.g. tool-call-shaped output despite tool_choice="none")."""
+        try:
+            return await plain_llm.ainvoke(messages + [SystemMessage(content=(
+                "No tools are available for this response, even if earlier in this "
+                "conversation you described or attempted to use one. Answer in plain "
+                "text only - do not attempt to call any tool."
+            ))])
+        except GroqAPIError:
+            logger.exception(
+                "Groq final-answer generation failed for domain '%s'.", domain_name
+            )
+            return AIMessage(content=(
+                "I ran into a technical issue generating a response. "
+                "Please try rephrasing your question."
+            ))
 
+    async def reason(state:AgentState)-> dict:
+        thread_facts = state.get("thread_facts") or "none"
+        conversation_memories = state.get("conversation_memories") or ""
         context = build_context_prompt(state)
         remaining = state["tool_calls_remaining"]
-
+        long_term_memory = state.get("long_term_memory")
+        message = ledger_first(state["messages"])
         messages = [
             SystemMessage(content=(
                 f"{system_prompt}\n\n"
@@ -44,65 +375,183 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
                 "context below. If a tool result indicates the data isn't "
                 "available (e.g. not implemented, empty, or an error), say so "
                 "plainly instead of guessing an answer.\n\n"
+                f"The requesting employee's email is: {state.get('employee_email')}. This is "
+                "already known from their authenticated session - use it directly for any "
+                "tool argument that needs the requesting user's employee ID/email. Never ask "
+                "the user for their own employee ID or email.\n\n"
+                "Check if the tools have any error if the error is about any data that need to be provided by the user than ask user for information else if the error is about system/db "
+                "failure then just tell some technical issue occur and try again later.\n\n"
+                f"\n\nFacts the user told you earlier (long-term memory). If they answer the "
+f"question, use them and do not substitute facts from retrieved documents:\n"
+f"{long_term_memory}\n\n"
+"Before calling a tool, write one sentence saying what you need and why. "
+                "Call one tool at a time and wait for its result before deciding the next step.\n\n"
+                "If the retrieved sources disagree about the same fact (e.g. two different numbers for "
+                "one policy), do not pick one silently: state BOTH versions and name the source of each. "
+                "For per-employee records (leave balance, CTC, claims, tickets), the SQL/tool result is the "
+                "authority and overrides conflicting document text; mention the document value only as policy context.\n\n"
+                "Facts the user stated in this conversation. These are the newest values and override "
+                "long-term memory and document text for the same field:\n"
+                f"{thread_facts}\n\n"
+                f"{conversation_memories}\n\n"
                 f"Context:{context}"
             ))
-            ] + state["messages"]
+            ] + message
 
         # Once out of tool calls, force a final natural-language answer
         # instead of letting the model emit another (unexecuted) tool call.
-        sources = [chunk.get("sources", "unknown") for chunk in state.get("retrieved_context") or []]
+        sources = [chunk.get("source", "unknown") for chunk in state.get("retrieved_context") or []]
+        context_texts = [chunk.get("content", "") for chunk in state.get("retrieved_context") or []]
         if remaining<=0:
-            answer = await plain_llm.ainvoke(messages)
-            return await _finalize_answer(answer, messages, domain_name, sources, remaining)
+            last = messages[-1]
+            if isinstance(last,AIMessage) and last.tool_calls:
+                messages = messages[:-1] + [AIMessage(content = last.content or "")]
+            answer = await safe_plain_answer(messages)
+            return await _finalize_answer(answer, messages, domain_name, sources, context_texts, remaining)
 
-        res = await llm_with_tools.ainvoke(messages)
+        try:
+            res = await llm_with_tools.ainvoke(messages)
+            if not res.tool_calls and not (res.content or "").strip():
+                logger.warning(
+                    "Empty tool-decision response (no tool_calls, no content) for "
+                    "domain '%s'; retrying once.", domain_name
+                )
+                res = await llm_with_tools.ainvoke(messages)
+            print(res, "tool_name res")
+        except GroqAPIError:
+            logger.exception(
+                "Groq tool-decision generation failed to parse for domain '%s'; "
+                "falling back to a tool-less answer.", domain_name
+            )
+            answer_response = await safe_plain_answer(messages)
+            return await _finalize_answer(answer_response, messages, domain_name, sources, context_texts, remaining)
+
         if res.tool_calls:
-            tool_names = [tc["name"] for tc in res.tool_calls]
-            await adispatch_custom_event("tool_call", {"tool_call": tool_names})
-            return {"messages":[res], "tool_calls_remaining":remaining-1}
+            trace = list(state.get("react_trace") or [])
+            step = len({e["step"] for e in trace})+1
+            thought = (res.content or res.additional_kwargs.get("reasoning_content") or "").strip()
+            for tc in res.tool_calls:
+                entry = {"step": step, "thought": thought,
+                         "action":{"tool":tc["name"], "args":tc["args"]},
+                         "call_id":tc["id"], "observation":None,
+                         "budget_left": remaining-1
+                         }
+                trace.append(entry)
+                await adispatch_custom_event("react_step", {"react_step": entry})
+            return {"messages":[res], "tool_calls_remaining":remaining-1, "react_trace":trace}
 
-            
 
 
-        answer_response = await plain_llm.ainvoke(messages)
 
-        return await _finalize_answer(answer_response, messages, domain_name, sources, remaining)
+        # llm_with_tools already decided no tool is needed. If it also gave a
+        # real answer, use it directly - calling plain_llm again would just
+        # regenerate the same answer with a second, independent model call
+        # (wasted cost, and a second unrelated chance for Groq to reject it).
+        # Only fall back to a fresh generation when there's truly nothing to
+        # show (empty content too).
+        if (res.content or "").strip():
+            answer_response = res
+        else:
+            answer_response = await safe_plain_answer(messages)
+
+        return await _finalize_answer(answer_response, messages, domain_name, sources, context_texts, remaining)
     
-    async def _finalize_answer(answer_response,  messages, domain_name, sources, remaining):
+    async def _finalize_answer(answer_response,  messages, domain_name, sources, context_texts, remaining):
         """
     Shared final step for BOTH Case A and Case B.
     answer_response: the AIMessage containing the natural-language answer 
                       (already generated, either by plain llm or by 
                       llm_with_tools when it chose not to call a tool)
     """
-        metadata_messages = messages + [
+        clean = [m for m in messages
+         if not isinstance(m, ToolMessage)
+         and not (isinstance(m, AIMessage) and getattr(m, "tool_calls", None))]
+
+        metadata_messages = clean + [
             answer_response,
             SystemMessage(content="""Given the conversation and the answer above, assess your confidence (0.0 to 1.0) "
             "and whether this requires human review before being shown to the user. "
-            "If the user explicitly asked for human review, set requires_human_review to true.""")
+            "If the user explicitly asked for human review, set requires_human_review to true. "
+            "Set conflict_detected to true if the answer reports that sources or records disagree about the same fact.""")
         ]
-        metadata = await structured_llm.ainvoke(metadata_messages)
+        conflict_detected = False
+        try:
+            metadata = await structured_llm.ainvoke(metadata_messages)
+            print(metadata)
+            confidence = metadata.confidence
+            conflict_detected = metadata.conflict_detected
+            requires_human_review = apply_conflict_policy(metadata.requires_human_review, conflict_detected)
+        except GroqAPIError:
+            logger.exception(
+                "Groq confidence-metadata generation failed to parse for domain '%s'; "
+                "defaulting to low confidence and forcing human review.", domain_name
+            )
+            confidence = 0.0
+            requires_human_review = False
 
         final_answer = {
             "domain_name": domain_name,
             "answer": answer_response.content,
             "sources": sources,
-            "confidence":metadata.confidence,
-            "requires_human_review": metadata.requires_human_review
+            "context": context_texts,
+            "confidence":confidence,
+            "requires_human_review": requires_human_review,
+            "conflict_detected": conflict_detected
 
         }
         return {
             "messages":[answer_response],
             "final_answer": final_answer,
-            "requires_human_review": metadata.requires_human_review,
+            "requires_human_review": requires_human_review,
             "tool_calls_remaining":remaining
         }
 
+    tool_node = ToolNode(tools, handle_tool_errors=lambda e: f"ERROR: the action failed ({type(e).__name__}). Please try again later.")
+    async def tools_node(state:AgentState, config:RunnableConfig)-> dict:
+        result = await tool_node.ainvoke(state,config)
+        trace = [dict(e) for e in state.get("react_trace") or []]
+        for msg in result["messages"]:
+            for e in trace:
+                if e.get("call_id") == msg.tool_call_id:
+                    e["observation"] = str(msg.content)[:500]
+                    await adispatch_custom_event("observation", {"observation":e})
+        return {"messages": result["messages"], "react_trace":trace}
     graph.add_node("reason", reason)
-    graph.set_entry_point("retrieve")
-    graph.add_edge("retrieve", "reason")
+    graph.set_entry_point("prepare_retrieval")
+    graph.add_edge("prepare_retrieval","plan_retrieval")
+    graph.add_conditional_edges("plan_retrieval",route_after_planning,
+                                {
+                                    "vector_retrieval":"retrieve",
+                                    "sql_retrieval":"sql_retrieval",
+                                    "none": "reason"
+                                })
+    graph.add_edge("retrieve", "grade_retrieval")
+    graph.add_conditional_edges(
+        "sql_retrieval",
+        route_after_sql,
+        {
+            "reason": "reason",
+            "insufficient_evidence": "insufficient_evidence",
+            "fallback_to_vector": "fallback_to_vector",
+        },
+    )
+    graph.add_conditional_edges(
+        "grade_retrieval",
+        route_after_grading,
+        {
+            "reason": "reason",
+            "rewrite_query": "rewrite_query",
+            "insufficient_evidence": "insufficient_evidence",
+            "fallback_to_vector":"fallback_to_vector",
+            "fallback_to_sql":"fallback_to_sql"
+        },
+    )
+    graph.add_edge("fallback_to_sql","sql_retrieval")
+    graph.add_edge("fallback_to_vector","retrieve")
+    graph.add_edge("rewrite_query", "retrieve")
+    graph.add_edge("insufficient_evidence", END)
     if tools:
-        graph.add_node("tools", ToolNode(tools))
+        graph.add_node("tools", tools_node)
         graph.add_conditional_edges("reason",route_after_reason,{"tools":"tools", "reason":"reason", "end":END})
         graph.add_edge("tools","reason")
 
@@ -111,5 +560,3 @@ def build_domain_agent(llm,system_prompt:str, tools: list = None, domain_name: s
     
 
     return graph.compile()
-
-
