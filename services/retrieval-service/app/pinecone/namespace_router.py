@@ -8,6 +8,7 @@ from shared.contracts.schema import RetrievalQuery, RetrievalResponse, Retrieved
 from ..core import config as cfg
 from ..core.config import PINECONE_INDEX_NAME
 from .reranker import rerank
+from .filters import pinecone_filter, keyword_chunk_allowed, chunk_tags
 import asyncio
 from ..storage.bm25score import load_bm25
 
@@ -22,10 +23,20 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
         namespace=req.namespace
     )
 
-    results = vector_store.similarity_search_with_score(
-        query= req.query,
-        k=candidates
-    )
+    # With LOCALIZE off the search is exactly what it always was (no filter is even passed).
+    localize = cfg.LOCALIZE != "off"
+    categories = req.categories if localize else None
+    if localize:
+        results = vector_store.similarity_search_with_score(
+            query= req.query,
+            k=candidates,
+            filter=pinecone_filter(categories)
+        )
+    else:
+        results = vector_store.similarity_search_with_score(
+            query= req.query,
+            k=candidates
+        )
 
     bm25_data = await load_bm25(req.namespace)
 
@@ -46,6 +57,9 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
         bm25_ranked = sorted(
             zip(bm25_chunks, bm25_scores), key=lambda x: x[1], reverse=True
         )
+        if localize:
+            # scored as always, then reduced; ranks are counted after this so they stay 1, 2, 3...
+            bm25_ranked = [(chunk, score) for chunk, score in bm25_ranked if keyword_chunk_allowed(chunk, categories)]
         for rank, (chunk, _) in enumerate(bm25_ranked, start=1):
             if isinstance(chunk, dict):
                 text = chunk["text"]
@@ -55,7 +69,7 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
                 source = "unknown"
             rrf_score[text] = rrf_score.get(text, 0) + 1 / (k + rank)
             if text not in meta_lookup:
-                meta_lookup[text] = {"source": source}
+                meta_lookup[text] = {"source": source, **(chunk_tags(chunk) if localize else {})}
 
     chunks = [
         RetrievedChunk(

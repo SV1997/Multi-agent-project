@@ -16,6 +16,7 @@ class RetrievalQuery(BaseModel):
     query: str
     namespace: Literal["legal", "hr", "engineering", "finance", "support"]
     top_k: int = 5
+    categories: Optional[list[str]] = None  # restrict the search to chunks in these categories (only when LOCALIZE is not off)
 
 
 class RetrievedChunk(BaseModel):
