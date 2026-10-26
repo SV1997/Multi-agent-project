@@ -108,7 +108,7 @@ export class IngestionService {
         const fileName = `${crypto.randomUUID()}-${file.originalname}`
         const key = await this.storageService.uploadFile(file.buffer, fileName)
         const url = await this.storageService.getPresignedUrl(key)
-        return { key, url, type: uploadIngestionDto.type, doc_id: docIdFor(uploadIngestionDto.namespace, file.originalname) }
+        return { key, url, type: uploadIngestionDto.type, doc_id: docIdFor(uploadIngestionDto.namespace, file.originalname), file_name: file.originalname }
     }))
 
     const ingestionUrl = this.configService.get<string>('INGESTION_URL') || "";
@@ -116,7 +116,8 @@ export class IngestionService {
     const res = await firstValueFrom(this.httpService.post(ingestionUrl, {
         namespace: uploadIngestionDto.namespace,
         // document_type is per request, so every file in this upload gets the same value
-        source: uploaded.map(u => ({ path: u.url, type: u.type, doc_id: u.doc_id, document_type: uploadIngestionDto.document_type }))
+        // file_name is the name the user uploaded the file under; the stored path is a uuid-prefixed signed url, so the taxonomy keys on this
+        source: uploaded.map(u => ({ path: u.url, type: u.type, doc_id: u.doc_id, document_type: uploadIngestionDto.document_type, file_name: u.file_name }))
     }, {
         headers: { 'x-internal-secret': this.configService.get<string>('INTERNAL_SECRET') },
     }).pipe(
