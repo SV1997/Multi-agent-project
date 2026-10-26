@@ -33,3 +33,12 @@ class AgentState(TypedDict):
     search_failures: int
     # categories the search is narrowed to (set by the query frame); None = search the whole domain
     localize_categories: list[str] | None
+    # the query frame step (app/graph/frames): the chosen frame, the slots the user gave, what is still missing,
+    # the question to ask if something is, the question rewritten to stand on its own, and the trace of it all
+    frame_id: str | None
+    frame_slots: dict | None
+    missing_slots: list[str] | None
+    clarifying_question: str | None
+    rewritten_query: str | None
+    query_dag: dict | None
+    asked_frame_id: str | None      # the frame that asked a clarifying question; remembered for the next turn only
