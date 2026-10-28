@@ -1,5 +1,6 @@
-# DRAFT v1, built from the cleaned corpus inventory (25 Oct 2026). Documents are keyed by the file name the
-# chunks store as "source" (the stored doc_id is per chunk in this index, so it cannot be the key).
+# DRAFT v1, built from the cleaned corpus inventory (25 Oct 2026). Documents are keyed by the source file name:
+# the name a chunk's "source" ends with, or the name the file was uploaded under (not the doc id: the stored
+# doc_id is per chunk in this index, so it cannot identify a document).
 # HR is worked out in detail. The other domains are deliberately coarse: one or two files each.
 version: 1
 

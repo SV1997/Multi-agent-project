@@ -12,13 +12,17 @@ policy_taxonomy.yaml format (one block per domain):
       categories:
         leave_and_attendance: {description: "...", parents: []}
         parental_leave:       {description: "...", parents: [leave_and_attendance, benefits_and_insurance]}
-      documents:                          # doc id (preferred) or file name -> categories
-        3f2a9c1d4e5b6a7c: {title: "Leave Policy 2025", categories: [leave_and_attendance]}
+      documents:                          # source file name -> categories
+        leave_policy_2025.pdf: {title: "Leave Policy 2025", categories: [leave_and_attendance]}
         benefits.md: [benefits_and_insurance]
-      mixed: [3f2a9c1d4e5b6a7c]           # documents classified chunk by chunk (scripts/taxonomy/classify_mixed.py)
+      mixed: [leave_policy_2025.pdf]      # documents classified chunk by chunk (chunk_overrides.json)
 
-Key documents by doc id. Files fetched from SeaweedFS are loaded through a temporary file, so the "source"
-stored on their chunks is a name like /tmp/tmpevoy1z0r.md; the doc id (the prefix of every chunk id) is stable.
+Key documents by the source file name, the name a chunk's "source" ends with (or the name the file was uploaded
+under, which ingestion passes as file_name). In the index as it stands the stored doc_id is per chunk (the prefix
+of the chunk id changes from chunk to chunk), so it cannot identify a document. document_key() still honours a
+doc id if one is listed, but no entry in the yaml relies on that.
+Files fetched from SeaweedFS are loaded through a temporary file, so a stored "source" can be a name like
+/tmp/tmpevoy1z0r.md; that is why ingestion tags new uploads with the uploaded file name.
 A title, when given, is written to the chunk metadata so citations show a readable name.
 
 A category's parents make the taxonomy a DAG. Use a second parent only for a policy that really belongs to two
@@ -76,9 +80,11 @@ class Taxonomy:
 
     def document_key(self, domain: str, source: str, chunk_id: str | None = None,
                      file_name: str | None = None) -> str | None:
-        """The taxonomy entry a chunk belongs to: its doc id if listed, else the name the file was uploaded
-        under, else the last part of its source. The uploaded name wins over the source because a stored
-        source is often a temp or signed name (tmpabc.pdf, <uuid>-handbook.pdf) that never matches the yaml."""
+        """The taxonomy entry a chunk belongs to. Entries are keyed by source file name: the name the file was
+        uploaded under, else the last part of the chunk's source. The uploaded name wins over the source because
+        a stored source is often a temp or signed name (tmpabc.pdf, <uuid>-handbook.pdf) that never matches the
+        yaml. A doc id is checked first only for entries that are keyed by one; the stored doc_id is per chunk in
+        the current index, so normally nothing matches there."""
         docs = self.documents.get(domain, {})
         doc_id = chunk_id.split("#", 1)[0] if chunk_id else None
         if doc_id and doc_id in docs:
