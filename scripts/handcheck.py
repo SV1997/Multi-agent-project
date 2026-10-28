@@ -1,8 +1,10 @@
 """Hand-check of the chunk labels: write a sample sheet, fill it in by eye, then score it.
 
-    python scripts/taxonomy/handcheck.py --sample 30        # writes handcheck_sheet.csv
+    python scripts/handcheck.py --sample 30        # writes handcheck_sheet.csv (30 chunks drawn from all domains together)
+    python scripts/handcheck.py --stratify         # 10 chunks per domain instead, so a small domain (hr) gets enough rows
+    python scripts/handcheck.py --stratify 15      # 15 per domain
     (open the CSV in Excel, read each passage, type y or n in the "ok" column, save)
-    python scripts/taxonomy/handcheck.py --score handcheck_sheet.csv
+    python scripts/handcheck.py --score handcheck_sheet.csv
 
 "ok" = y when every assigned category is really covered by the passage AND no category that the passage
 clearly covers is missing. Anything else is n; say why in "note".
@@ -25,6 +27,19 @@ OVERRIDES_PATH = HERE / "chunk_overrides.json"
 
 def pick_sample(overrides: dict, n: int, seed: int = 7) -> list[str]:
     return random.Random(seed).sample(sorted(overrides), min(n, len(overrides)))
+
+
+def pick_stratified(overrides: dict, per_domain: int = 10, seed: int = 7) -> list[str]:
+    """`per_domain` chunk ids from each domain (all of them if a domain has fewer), in domain order.
+    Same seed and same labels give the same sample."""
+    by_domain = defaultdict(list)
+    for cid in sorted(overrides):
+        by_domain[overrides[cid]["domain"]].append(cid)
+    rng = random.Random(seed)
+    ids = []
+    for domain in sorted(by_domain):
+        ids.extend(rng.sample(by_domain[domain], min(per_domain, len(by_domain[domain]))))
+    return ids
 
 
 def write_sheet(index, overrides: dict, ids: list[str], path: str) -> None:
@@ -55,12 +70,19 @@ def score(path: str) -> dict:
             "accuracy": round(answered.count("y") / len(answered), 3) if answered else None, "wrong": wrong}
 
 
-def main():
+def build_parser():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sample", type=int)
+    ap.add_argument("--sample", type=int, help="N chunks drawn from all domains together (default 30)")
+    ap.add_argument("--stratify", type=int, nargs="?", const=10, metavar="N",
+                    help="N chunks per domain (default 10) instead of one sample over all domains")
+    ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--score")
     ap.add_argument("--out", default="handcheck_sheet.csv")
-    args = ap.parse_args()
+    return ap
+
+
+def main():
+    args = build_parser().parse_args()
     if args.score:
         s = score(args.score)
         print(f"{s['correct']} of {s['answered']} correct = {s['accuracy']}  ({s['rows'] - s['answered']} rows not filled in)")
@@ -70,7 +92,10 @@ def main():
     from pinecone import Pinecone
     index = Pinecone(api_key=os.environ["PINECONE_API_KEY"]).Index(os.environ["PINECONE_INDEX_NAME"])
     overrides = json.loads(OVERRIDES_PATH.read_text(encoding="utf-8"))
-    ids = pick_sample(overrides, args.sample or 30)
+    if args.stratify is not None:
+        ids = pick_stratified(overrides, args.stratify, args.seed)
+    else:
+        ids = pick_sample(overrides, args.sample or 30, args.seed)
     write_sheet(index, overrides, ids, args.out)
     print(f"wrote {len(ids)} chunks to {args.out}")
 
