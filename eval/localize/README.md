@@ -35,6 +35,25 @@ orchestrator and the retrieval service; the default is `off`):
 Repeat for `off`, `prompt` and `full`. Each run stores `results/<level>.json` (git-ignored). The runner warns if
 the answers do not look like the level you named (for example frames present when you said `off`).
 
+### All four levels in one command
+
+    $env:INTERNAL_SHARED_SECRET = "<same value as the orchestrator>"
+    $env:EVAL_EMPLOYEE_EMAIL = "<an employee e-mail allowed to read all five domains>"
+    uv run python eval/localize/runner.py run-all --questions eval/localize/questions.jsonl --switch compose
+
+`--switch compose` restarts the orchestrator and the retrieval service with `LOCALIZE=<level>` before each level;
+`--switch manual` asks you to change it yourself. It writes `results/<level>.json` for each level and then
+`results/comparison.csv` and `results/comparison.md`. A question that times out or errors is stored as a failure,
+named on the console and counted in the "requests that failed" row.
+
+Every command refuses a question file that does not have both `"split": "tune"` and `"split": "heldout"` rows.
+
+### Check the table format without services
+
+    uv run python eval/localize/runner.py run-all --dry-run --questions eval/localize/questions.example.jsonl
+
+Uses a fake client (`fakes.py`), writes to `results_dryrun/` (git-ignored) and labels every file FAKE.
+
 ## 3. Compare
 
     uv run python eval/localize/runner.py report --questions eval/localize/questions.jsonl
@@ -45,7 +64,9 @@ the answers do not look like the level you named (for example frames present whe
   nothing with the question's expected categories. Sources in documents with mixed categories are not judged.
 - **frame accuracy** - questions sorted into exactly the expected frame (no frame counts as wrong).
 - **clarification correct** - asked a clarifying question exactly when one was needed (only `full` asks).
-- **fallback rate** - questions whose evidence came from a widened search.
+- **fallback rate** - questions whose evidence came from a widened search; the table also gives the share answered
+  at each level (0 = the frame's own categories, 1 = parents' family, 2 = whole domain).
+- **requests that failed** - timeouts and errors. They are left out of every rate above, so read each rate with it.
 - **gap** - tune minus held-out.
 
 `n/a` means the level cannot measure it (for example `off` has no frames); it is not zero.

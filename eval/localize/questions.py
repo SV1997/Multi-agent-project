@@ -39,7 +39,8 @@ def check_row(row, taxonomy, known_frames=None) -> list[str]:
     """Every problem with one row, as short messages (an empty list means the row is fine)."""
     if not isinstance(row, dict):
         return ["a row must be a JSON object"]
-    problems = [f"missing field '{f}'" for f in FIELDS if f not in row]
+    problems = [f"missing field '{f}'" + (' (every row needs "split": "tune" or "heldout")' if f == "split" else "")
+                for f in FIELDS if f not in row]
     problems += [f"unknown field '{f}'" for f in row if f not in FIELDS]
     if problems:
         return problems
@@ -95,6 +96,16 @@ def parse_questions(lines, taxonomy, known_frames=None) -> list[dict]:
     if errors:
         raise QuestionError("question set is invalid:\n  " + "\n  ".join(errors))
     return rows
+
+
+def require_both_splits(rows: list[dict]) -> None:
+    """The evaluation compares tuning questions with held-out ones, so a set with only one kind is refused."""
+    counts = {split: sum(1 for r in rows if r["split"] == split) for split in SPLITS}
+    if not all(counts.values()):
+        raise QuestionError(
+            'question set cannot be used: it needs rows with "split": "tune" AND rows with "split": "heldout" '
+            f"(found tune={counts['tune']}, heldout={counts['heldout']}). Without both, the tune vs held-out gap "
+            "cannot be measured.")
 
 
 def load_questions(path: str, taxonomy, known_frames=None) -> list[dict]:
