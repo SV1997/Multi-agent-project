@@ -8,7 +8,7 @@ from shared.contracts.schema import RetrievalQuery, RetrievalResponse, Retrieved
 from ..core import config as cfg
 from ..core.config import PINECONE_INDEX_NAME
 from .reranker import rerank
-from .filters import pinecone_filter, keyword_chunk_allowed, chunk_tags
+from .filters import pinecone_filter, keyword_chunk_allowed, chunk_tags, LOCALIZED_NAMESPACES
 import asyncio
 from ..storage.bm25score import load_bm25
 
@@ -23,8 +23,9 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
         namespace=req.namespace
     )
 
-    # With LOCALIZE off the search is exactly what it always was (no filter is even passed).
-    localize = cfg.LOCALIZE != "off"
+    # With LOCALIZE off the search is exactly what it always was (no filter is even passed). The same holds for a
+    # namespace outside the taxonomy (coding): its chunks have no labels, so any filter would hide all of them.
+    localize = cfg.LOCALIZE != "off" and req.namespace in LOCALIZED_NAMESPACES
     categories = req.categories if localize else None
     if localize:
         results = vector_store.similarity_search_with_score(
