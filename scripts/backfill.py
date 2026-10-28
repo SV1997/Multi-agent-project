@@ -12,6 +12,7 @@ Run from the repo root:
     uv run python scripts/backfill.py                  DRY RUN: shows what would change, writes nothing
     uv run python scripts/backfill.py --apply          writes to Pinecone, then to the BM25 indexes
     uv run python scripts/backfill.py --namespace hr   only one domain
+    uv run python scripts/backfill.py --report-orphans lists BM25 chunks with no Pinecone twin and the reverse (read-only)
 
 Safe to run again: a chunk that is already correct is skipped. Only the five taxonomy domains are touched;
 any other namespace in the index is listed and left alone.
@@ -197,13 +198,134 @@ def print_report(pine_stats, bm25_stats, skipped, apply, log=print):
         log("DRY RUN - nothing was written. Run again with --apply to write these changes.")
 
 
+# ---------------------------------------------------------------- orphans (report mode)
+
+def snippet(text, width=70):
+    return " ".join(str(text).split())[:width]
+
+
+def find_orphans(pinecone_items, bm25_chunks, namespace, tax):
+    """Compare the two stores of one namespace. Reads only.
+
+    pinecone_items  iterable of (chunk_id, metadata)
+    bm25_chunks     the "chunks" list of that namespace's BM25 pickle
+
+    A BM25 chunk has no chunk id, so it is identified by its position in the pickle, and matched to Pinecone by
+    (source, text) like the backfill does. A plain-string BM25 chunk has no source, so it is matched by text alone.
+
+    Returns (bm25_only, pinecone_only):
+      bm25_only      [{"position", "source", "doc_id", "categories", "text"}] chunks Pinecone does not have
+      pinecone_only  [{"chunk_id", "source", "text"}] chunks the BM25 index does not have
+    """
+    pine = list(pinecone_items)
+    pine_keys = {(str(m.get("source", "")), str(m.get("text", ""))) for _, m in pine}
+    pine_texts = {str(m.get("text", "")) for _, m in pine}
+
+    bm25_keys, bm25_texts, bm25_only = set(), set(), []
+    for position, chunk in enumerate(bm25_chunks):
+        if isinstance(chunk, dict):
+            source, text = str(chunk.get("source", "")), str(chunk.get("text", ""))
+            bm25_keys.add((source, text))
+            bm25_texts.add(text)
+            if (source, text) not in pine_keys:
+                categories = tag_fields(tax, namespace, source, None, chunk.get("file_name"))["categories"]
+                bm25_only.append({"position": position, "source": source, "doc_id": chunk.get("doc_id"),
+                                  "categories": categories, "text": snippet(text)})
+        else:
+            bm25_texts.add(str(chunk))
+            if str(chunk) not in pine_texts:
+                bm25_only.append({"position": position, "source": "(plain string)", "doc_id": None,
+                                  "categories": [UNCATEGORIZED], "text": snippet(chunk)})
+
+    pinecone_only = [{"chunk_id": chunk_id, "source": str(m.get("source", "")), "text": snippet(m.get("text", ""))}
+                     for chunk_id, m in pine
+                     if (str(m.get("source", "")), str(m.get("text", ""))) not in bm25_keys
+                     and str(m.get("text", "")) not in bm25_texts]
+    return bm25_only, pinecone_only
+
+
+def print_orphans(results, log=print):
+    """results: {namespace: (bm25_only, pinecone_only) or None when the namespace has no BM25 index}"""
+    for ns, found in results.items():
+        log("")
+        if found is None:
+            log(f"{ns}: no keyword index stored, so nothing to compare")
+            continue
+        bm25_only, pinecone_only = found
+        log(f"{ns}: {len(bm25_only)} keyword-index chunks are not in Pinecone, "
+            f"{len(pinecone_only)} Pinecone chunks are not in the keyword index")
+        for o in bm25_only:
+            log(f"  BM25 only  #{o['position']:<4d} {o['source'][-50:]:50s} doc_id={o['doc_id']} "
+                f"would be {o['categories']} | {o['text']}")
+        for o in pinecone_only:
+            log(f"  Pinecone only  {o['chunk_id']} {o['source'][-50:]:50s} | {o['text']}")
+    log("")
+    log("Nothing was changed. A keyword-only chunk is a stale entry (its document was deleted or re-ingested from Pinecone "
+        "only): re-ingest that document or delete it with the ingestion service's delete-document call, "
+        "which removes it from both stores. A Pinecone-only chunk is missing from keyword search until its document is "
+        "re-ingested.")
+
+
 # ---------------------------------------------------------------- main
 
-def main():
+def build_parser():
     ap = argparse.ArgumentParser(description="Put the taxonomy's labels onto stored chunks (dry run unless --apply).")
     ap.add_argument("--apply", action="store_true", help="write the changes (the default is a dry run)")
     ap.add_argument("--namespace", choices=DOMAINS, help="only this domain")
-    args = ap.parse_args()
+    ap.add_argument("--report-orphans", action="store_true",
+                    help="read-only: list BM25 chunks missing from Pinecone and Pinecone chunks missing from BM25")
+    return ap
+
+
+async def run_orphans(index, conn, tax, namespaces):
+    results = {}
+    for ns in namespaces:
+        data = await load_bm25(conn, ns)
+        results[ns] = None if data is None else find_orphans(all_chunks(index, ns), data["chunks"], ns, tax)
+    return results
+
+
+def execute(args, tax, index, connect, log=print):
+    """Run what `args` asks for. `connect` is an async function returning a database connection.
+    Returns the number of Pinecone chunks that failed to write."""
+    namespaces = [args.namespace] if args.namespace else list(DOMAINS)
+
+    if args.report_orphans:
+        if args.apply:
+            raise SystemExit("--report-orphans only reads; do not combine it with --apply.")
+
+        async def orphan_step():
+            conn = await connect()
+            try:
+                return await run_orphans(index, conn, tax, namespaces)
+            finally:
+                await conn.close()
+
+        print_orphans(asyncio.run(orphan_step()), log)
+        return 0
+
+    log(f"{'APPLYING' if args.apply else 'DRY RUN'}: reading the chunks of {', '.join(namespaces)} ...")
+    updates, targets, pine_stats = plan_pinecone(index, tax, namespaces)
+
+    failed = 0
+    if args.apply:
+        done, failed = apply_pinecone(index, updates, log)
+        log(f"Pinecone: {done} chunks updated, {failed} failed")
+
+    async def bm25_step():
+        conn = await connect()
+        try:
+            return await run_bm25(conn, tax, targets, namespaces, args.apply)
+        finally:
+            await conn.close()
+
+    bm25_stats = asyncio.run(bm25_step())
+    print_report(pine_stats, bm25_stats, skipped_namespaces(index, DOMAINS), args.apply, log)
+    return failed
+
+
+def main():
+    args = build_parser().parse_args()
 
     load_dotenv()
     load_dotenv(os.path.join(ROOT, "services", "ingestion_service", ".env"))     # DATABASE_URL is kept there
@@ -213,28 +335,12 @@ def main():
     from pinecone import Pinecone
     import asyncpg
 
-    tax = load_taxonomy()
-    namespaces = [args.namespace] if args.namespace else list(DOMAINS)
     index = Pinecone(api_key=os.environ["PINECONE_API_KEY"]).Index(os.environ["PINECONE_INDEX_NAME"])
 
-    print(f"{'APPLYING' if args.apply else 'DRY RUN'}: reading the chunks of {', '.join(namespaces)} ...")
-    updates, targets, pine_stats = plan_pinecone(index, tax, namespaces)
+    async def connect():
+        return await asyncpg.connect(os.environ["DATABASE_URL"])
 
-    failed = 0
-    if args.apply:
-        done, failed = apply_pinecone(index, updates)
-        print(f"Pinecone: {done} chunks updated, {failed} failed")
-
-    async def bm25_step():
-        conn = await asyncpg.connect(os.environ["DATABASE_URL"])
-        try:
-            return await run_bm25(conn, tax, targets, namespaces, args.apply)
-        finally:
-            await conn.close()
-
-    bm25_stats = asyncio.run(bm25_step())
-    print_report(pine_stats, bm25_stats, skipped_namespaces(index, DOMAINS), args.apply)
-    if failed:
+    if execute(args, load_taxonomy(), index, connect):
         sys.exit(1)
 
 

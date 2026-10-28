@@ -3,6 +3,7 @@
 Run from the repo root:  uv run python -m pytest scripts/tests -q
 """
 import asyncio
+import pytest
 import os
 import pickle
 import sys
@@ -214,6 +215,9 @@ class FakeConn:
     async def fetchrow(self, query, namespace):
         return {"indexData": self.rows[namespace]} if namespace in self.rows else None
 
+    async def close(self):
+        pass
+
     async def execute(self, query, namespace, blob, when):
         self.saved.append((namespace, pickle.loads(blob)))
         self.rows[namespace] = blob
@@ -283,3 +287,115 @@ def test_a_chunk_with_a_file_name_is_matched_to_its_document_in_pinecone_and_bm2
     new_chunks, bm25_stats = backfill.plan_bm25([bm25_chunk], "hr", TAX, targets)
     assert new_chunks[0]["categories"] == ["leave", "earned_leave"]
     assert "no_twin_uncategorized" not in bm25_stats          # the file name found its document, so not uncategorized
+
+
+# ---------------------------------------------------------------- the command line: dry run by default, no re-embedding
+
+class StrictIndex(FakeIndex):
+    """Fails the test if an update tries to send anything but metadata (a vector would mean re-embedding)."""
+
+    def update(self, id, set_metadata=None, namespace=None):
+        super().update(id, set_metadata=set_metadata, namespace=namespace)
+
+
+def make_connect(rows):
+    conn = FakeConn(rows)
+
+    async def connect():
+        return conn
+
+    return connect, conn
+
+
+def hr_args(*argv):
+    return backfill.build_parser().parse_args(list(argv))
+
+
+def test_the_default_is_a_dry_run_and_apply_must_be_asked_for():
+    assert backfill.build_parser().parse_args([]).apply is False
+    assert backfill.build_parser().parse_args([]).report_orphans is False
+    assert backfill.build_parser().parse_args(["--apply"]).apply is True
+
+
+def test_a_dry_run_through_execute_writes_to_neither_pinecone_nor_neon():
+    index = StrictIndex(make_index().store)
+    connect, conn = make_connect({"hr": pickle.dumps(hr_bm25_data())})
+    lines = []
+    failed = backfill.execute(hr_args("--namespace", "hr"), TAX, index, connect, lines.append)
+
+    assert failed == 0 and index.update_calls == [] and conn.saved == []
+    assert "DRY RUN - nothing was written" in "\n".join(lines)
+
+
+def test_apply_updates_metadata_only_and_the_bm25_pickle_and_a_second_apply_finds_nothing_to_do():
+    index = StrictIndex(make_index().store)                  # update() accepts no vector argument at all
+    connect, conn = make_connect({"hr": pickle.dumps(hr_bm25_data())})
+
+    first = []
+    assert backfill.execute(hr_args("--apply", "--namespace", "hr"), TAX, index, connect, first.append) == 0
+    assert len(index.update_calls) == 3 and all("values" not in fields for _, _, fields in index.update_calls)
+    assert len(conn.saved) == 1 and conn.saved[0][1]["chunks"][0]["categories"] == ["leave", "earned_leave"]
+
+    index.update_calls.clear()
+    conn.saved.clear()
+    second = []
+    backfill.execute(hr_args("--apply", "--namespace", "hr"), TAX, index, connect, second.append)
+    text = "\n".join(second)
+    assert index.update_calls == [] and conn.saved == []
+    assert "to update    0" in text and text.count("to update    0") == 2        # Pinecone line and BM25 line
+
+
+def test_a_failed_pinecone_write_is_returned_so_the_command_exits_non_zero():
+    index = StrictIndex(make_index().store)
+    index.fail_ids = {"hr-1"}
+    connect, _ = make_connect({})
+    assert backfill.execute(hr_args("--apply", "--namespace", "hr"), TAX, index, connect, lambda *_: None) == 1
+
+
+# ---------------------------------------------------------------- report mode: stale keyword chunks and the reverse
+
+def orphan_fixture():
+    index = make_index()
+    bm25 = [
+        {"text": "Earned leave is 24 days", "source": "/tmp/handbook.pdf"},          # has a twin
+        {"text": "stale text", "source": "/tmp/tmpxyz.pdf", "doc_id": "d9"},         # no twin, unknown document
+        {"text": "stale but known", "source": "/tmp/handbook.pdf"},                  # no twin, known document
+        "y",                                                                         # plain string; matches hr-3 by text
+        "plain stale",                                                               # plain string, no match
+    ]
+    return index, bm25
+
+
+def test_find_orphans_lists_both_directions_without_writing():
+    index, bm25 = orphan_fixture()
+    bm25_only, pinecone_only = backfill.find_orphans(backfill.all_chunks(index, "hr"), bm25, "hr", TAX)
+
+    assert [o["position"] for o in bm25_only] == [1, 2, 4]
+    assert bm25_only[0]["categories"] == ["uncategorized"] and bm25_only[0]["doc_id"] == "d9"
+    assert bm25_only[1]["categories"] == ["leave", "earned_leave"]
+    assert [o["chunk_id"] for o in pinecone_only] == ["hr-2"]          # hr-1 and hr-3 are in the keyword index
+    assert index.update_calls == []
+
+
+def test_a_namespace_in_sync_has_no_orphans():
+    index = FakeIndex({"hr": {"a": {"source": "s", "text": "t1"}, "b": {"source": "s", "text": "t2"}}})
+    assert backfill.find_orphans(backfill.all_chunks(index, "hr"),
+                                 [{"text": "t1", "source": "s"}, {"text": "t2", "source": "s"}], "hr", TAX) == ([], [])
+
+
+def test_report_orphans_through_execute_is_read_only_and_says_when_no_index_exists():
+    index, bm25 = orphan_fixture()
+    connect, conn = make_connect({"hr": pickle.dumps({"Bm25": "x", "chunks": bm25})})
+    lines = []
+    assert backfill.execute(hr_args("--report-orphans"), TAX, index, connect, lines.append) == 0
+
+    text = "\n".join(lines)
+    assert index.update_calls == [] and conn.saved == []
+    assert "hr: 3 keyword-index chunks are not in Pinecone, 1 Pinecone chunks are not in the keyword index" in text
+    assert "support: no keyword index stored" in text and "Nothing was changed" in text
+
+
+def test_report_orphans_cannot_be_combined_with_apply():
+    connect, _ = make_connect({})
+    with pytest.raises(SystemExit):
+        backfill.execute(hr_args("--report-orphans", "--apply"), TAX, make_index(), connect, lambda *_: None)
