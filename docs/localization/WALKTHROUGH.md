@@ -130,6 +130,8 @@ menu with numbers can be checked by code, and a wrong answer simply falls back t
 
 ## 6. Running things (Windows, PowerShell, uv)
 
+The ordered, step-by-step version with expected output is in [RUNBOOK.md](RUNBOOK.md).
+
 From the repository root unless stated.
 
 **Tests** (they use fakes; no network or keys needed):
