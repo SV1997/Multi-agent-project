@@ -30,7 +30,8 @@ A title, when given, is written to the chunk metadata so citations show a readab
 
 A category's parents make the taxonomy a DAG. Use a second parent only for a policy that really belongs to two
 categories, and cite that document in the report. descendants() and expand_with_descendants() walk the DAG
-downwards: a frame that names a parent category also searches everything below it.
+downwards: a frame that names a parent category also searches everything below it. parents_family() is the
+step upwards, used when a narrow search finds nothing.
 """
 from __future__ import annotations
 
@@ -133,6 +134,25 @@ def expand_with_descendants(taxonomy: Taxonomy, domain: str, names) -> list[str]
         if name in below:
             ordered.append(name)
     return given + ordered
+
+
+def parents_family(taxonomy: Taxonomy, domain: str, names) -> list[str]:
+    """When a narrow search finds nothing, the next try is the parents' whole family: the parents and all under them."""
+    categories = taxonomy.categories.get(domain, {})
+    own = expand_with_descendants(taxonomy, domain, names)
+    parents = []
+    for name in own:
+        for parent in categories[name].parents:
+            if parent not in own and parent not in parents:
+                parents.append(parent)
+    if not parents:
+        return []                                # no wider family, so this level would only repeat the first search
+    family = set(own) | set(parents) | descendants(taxonomy, domain, parents)
+    ordered = []
+    for name in categories:                      # the order the yaml lists them in
+        if name in family:
+            ordered.append(name)
+    return ordered
 
 
 def parse_taxonomy(data: dict) -> Taxonomy:

@@ -35,6 +35,8 @@ class AgentState(TypedDict):
     localize_categories: list[str] | None
     # set by frame_query_node: which frame was chosen, and the sentence added to the answering prompt
     localize_frame_id: str | None
+    localize_wider_categories: list[str] | None     # level 1: the parents' whole family, tried if the first search finds nothing
     localize_scope: str | None
     # True when the filtered search found nothing and the retrieval service searched the whole domain instead
     localize_fallback_used: bool | None
+    localize_fallback_level: int | None             # 0 = the frame's own categories, 1 = the parents' family, 2 = the whole domain

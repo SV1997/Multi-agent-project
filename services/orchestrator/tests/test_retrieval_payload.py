@@ -81,3 +81,31 @@ def test_a_fallback_reported_by_the_retrieval_service_is_kept_in_the_state(monke
 def test_an_unfiltered_search_leaves_the_fallback_flag_alone(monkeypatch):
     _, result = retrieve(monkeypatch)
     assert "localize_fallback_used" not in result
+
+
+# ---------------------------------------------------------------- the wider level and which level answered
+
+def test_the_wider_categories_are_sent_with_the_categories(monkeypatch):
+    payload, _ = retrieve(monkeypatch, localize_categories=["earned_leave"], localize_wider_categories=["leave", "earned_leave"])
+    assert payload["categories"] == ["earned_leave"] and payload["wider_categories"] == ["leave", "earned_leave"]
+
+
+def test_wider_categories_alone_are_never_sent(monkeypatch):
+    payload, _ = retrieve(monkeypatch, localize_wider_categories=["leave"])
+    assert "wider_categories" not in payload and "categories" not in payload
+
+
+def test_no_wider_level_means_nothing_extra_is_sent(monkeypatch):
+    payload, _ = retrieve(monkeypatch, localize_categories=["leave"], localize_wider_categories=None)
+    assert "wider_categories" not in payload
+
+
+def test_the_level_the_retrieval_service_answered_at_is_kept_in_the_state(monkeypatch):
+    monkeypatch.setattr(FakeResponse, "json", lambda self: {"results": [], "fallback_used": True, "fallback_level": 1})
+    _, result = retrieve(monkeypatch, localize_categories=["earned_leave"], localize_wider_categories=["leave"])
+    assert result["localize_fallback_used"] is True and result["localize_fallback_level"] == 1
+
+
+def test_a_search_that_needed_no_widening_records_level_zero(monkeypatch):
+    _, result = retrieve(monkeypatch, localize_categories=["leave"])
+    assert result["localize_fallback_used"] is False and result["localize_fallback_level"] == 0

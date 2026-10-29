@@ -117,6 +117,29 @@ def test_the_model_sees_the_numbered_menu_and_only_the_latest_question(on):
     assert human == ("human", "new question")
 
 
+# ---------------------------------------------------------------- level 1: the parents' family, prepared for the retrieval service
+
+def test_a_leaf_frame_prepares_the_parents_whole_family_as_level_one(on):
+    on(number_of("hr.leave_entitlement"))
+    update = frame_query_node(state())
+    assert update["localize_categories"] == ["earned_leave", "sick_leave"]
+    assert update["localize_wider_categories"] == ["leave", "earned_leave", "sick_leave"]
+    assert update["localize_fallback_level"] is None
+
+
+def test_a_frame_naming_the_top_parent_has_no_level_one(on):
+    on(number_of("hr.leave_overview"))
+    update = frame_query_node(state("tell me about leave"))
+    assert update["localize_categories"] == ["leave", "earned_leave", "sick_leave"] and update["localize_wider_categories"] is None
+
+
+@pytest.mark.parametrize("number", [-1, 99])
+def test_no_frame_means_no_levels_at_all(on, number):
+    on(number)
+    update = frame_query_node(state())
+    assert update["localize_categories"] is None and update["localize_wider_categories"] is None
+
+
 # ---------------------------------------------------------------- no frame fits: no filter, never an error
 
 @pytest.mark.parametrize("number", [-1, 99, 1000])
@@ -162,9 +185,11 @@ def test_the_scope_prompt_names_the_frame_and_the_description_of_each_category()
 
 # ---------------------------------------------------------------- what the demo shows
 
-def test_debug_information_shows_the_frame_the_categories_and_the_fallback():
-    values = {"localize_frame_id": "hr.leave_entitlement", "localize_categories": ["earned_leave"], "localize_fallback_used": True}
-    assert debug_payload(values) == {"frame_id": "hr.leave_entitlement", "categories": ["earned_leave"], "fallback_used": True}
+def test_debug_information_shows_the_frame_the_levels_and_how_far_the_search_widened():
+    values = {"localize_frame_id": "hr.leave_entitlement", "localize_categories": ["earned_leave"],
+              "localize_wider_categories": ["leave", "earned_leave"], "localize_fallback_used": True, "localize_fallback_level": 1}
+    assert debug_payload(values) == {"frame_id": "hr.leave_entitlement", "categories": ["earned_leave"],
+                                     "wider_categories": ["leave", "earned_leave"], "fallback_used": True, "fallback_level": 1}
 
 
 def test_there_is_no_debug_information_without_a_frame():
