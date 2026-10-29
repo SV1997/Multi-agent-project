@@ -14,7 +14,7 @@ from langchain_core.documents import Document
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../scripts"))      # for the backfill cross-check
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../scripts"))      # for the labelling-script cross-check
 fake_emb = types.ModuleType("shared.embeddings.embeddings")
 fake_emb.embeddings = object()
 sys.modules.setdefault("shared.embeddings.embeddings", fake_emb)
@@ -179,17 +179,15 @@ def test_a_broken_taxonomy_does_not_stop_ingestion_but_is_reported(client, store
 
     assert response.status_code == 200 and response.json()["status"] == "success"
     assert len(store) == 2 and all("categories" not in e["meta"] for e in store.values())
-    assert any("taxonomy unavailable" in w and "backfill.py" in w for w in response.json()["warnings"])
+    assert any("taxonomy unavailable" in w and "label_documents.py" in w for w in response.json()["warnings"])
     assert all("categories" not in c for c in client.saved_bm25["hr"]["chunks"])
 
 
-def test_a_backfill_run_right_after_ingestion_has_nothing_left_to_change(client, store):
-    """The two ways of tagging a chunk (at ingestion, and the backfill script) must agree exactly."""
-    import backfill
+def test_a_label_documents_run_right_after_ingestion_has_nothing_left_to_change(client, store):
+    """The two ways of tagging a chunk (at ingestion, and the labelling script) must agree exactly."""
+    import label_documents
 
     post_ingest(client, file_name="handbook.pdf")
-    updates, targets, stats = backfill.plan_pinecone(FakeIndex(store), TAX, ["hr"])
+    counts = label_documents.label_namespace(FakeIndex(store), TAX, "hr", apply=False)
 
-    assert updates == [] and stats["hr"]["already_correct"] == 2
-    _, bm25_stats = backfill.plan_bm25(client.saved_bm25["hr"]["chunks"], "hr", TAX, targets)
-    assert bm25_stats.get("to_update", 0) == 0 and bm25_stats["already_correct"] == 2
+    assert counts == {"chunks": 2, "to_change": 0, "failed": 0}

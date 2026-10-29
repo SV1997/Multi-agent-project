@@ -2,7 +2,7 @@
 
 One file is the single source of truth for four users:
   ingestion        tags every new chunk with its categories
-  backfill script  tags the chunks already in Pinecone and in the BM25 index
+  labelling script tags the chunks already in Pinecone (scripts/label_documents.py)
   retrieval        filters a search to the categories a query frame names
   evaluation       decides whether a retrieved chunk was in the right category
 
@@ -29,7 +29,8 @@ Files fetched from SeaweedFS are loaded through a temporary file, so a stored "s
 A title, when given, is written to the chunk metadata so citations show a readable name.
 
 A category's parents make the taxonomy a DAG. Use a second parent only for a policy that really belongs to two
-categories, and cite that document in the report.
+categories, and cite that document in the report. descendants() and expand_with_descendants() walk the DAG
+downwards: a frame that names a parent category also searches everything below it.
 """
 from __future__ import annotations
 
@@ -103,6 +104,35 @@ def source_key(source: str) -> str:
     """File name of a chunk's source. Signed SeaweedFS URLs and local paths of the same file give the same key."""
     path = urlparse(source).path if "://" in (source or "") else (source or "")
     return unquote(path.rstrip("/").split("/")[-1])
+
+
+def descendants(taxonomy: Taxonomy, domain: str, names) -> set[str]:
+    """Searching a parent category must also search its children, because chunks carry the child labels."""
+    categories = taxonomy.categories.get(domain, {})
+    children: dict[str, list[str]] = {}
+    for name, category in categories.items():
+        for parent in category.parents:
+            children.setdefault(parent, []).append(name)
+    found: set[str] = set()
+    queue = list(names)
+    while queue:
+        for child in children.get(queue.pop(), ()):
+            if child not in found:
+                found.add(child)
+                queue.append(child)
+    return found - set(names)
+
+
+def expand_with_descendants(taxonomy: Taxonomy, domain: str, names) -> list[str]:
+    """A frame names a few categories; the search needs those plus everything below them, in a stable order."""
+    categories = taxonomy.categories.get(domain, {})
+    given = [name for name in names if name in categories]
+    below = descendants(taxonomy, domain, given)
+    ordered = []
+    for name in categories:                      # the order the yaml lists them in
+        if name in below:
+            ordered.append(name)
+    return given + ordered
 
 
 def parse_taxonomy(data: dict) -> Taxonomy:

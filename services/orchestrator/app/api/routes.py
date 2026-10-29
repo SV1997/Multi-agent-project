@@ -13,7 +13,7 @@ import json
 from uuid import uuid4
 from langgraph.types import Command
 from ..main import app_state
-from ..graph.frames.dag import debug_payload
+from ..graph.frames.node import debug_payload
 # Env values are strings (None when unset); the graph does arithmetic on this, so it must be an int.
 TOOL_CALL_REMAINING = int(os.getenv("TOOL_CALL_REMAINING", "6"))
 router = APIRouter()

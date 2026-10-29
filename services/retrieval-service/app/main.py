@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from .api.routes import router
+from .core import config
 
 app = FastAPI(
     title="retrieval-service",
@@ -12,4 +13,4 @@ app.include_router(router, prefix="/api/v1")
 
 @app.get("/health")
 async def health():
-    return {"status":"ok", "service": "retrieval-service"}
+    return {"status":"ok", "service": "retrieval-service", "localize": config.LOCALIZE}

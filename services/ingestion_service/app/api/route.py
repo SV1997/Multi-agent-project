@@ -104,12 +104,12 @@ async def ingest(req:IngestionRequest):
 
 def load_taxonomy_or_warn(warnings: list[str]):
     """The taxonomy, or None with a warning. A broken taxonomy file must not stop documents being ingested;
-    the chunks are then stored without categories and scripts/backfill.py adds them later."""
+    the chunks are then stored without categories and scripts/label_documents.py adds them later."""
     try:
         return load_taxonomy()
     except Exception as e:
         warnings.append(f"taxonomy unavailable ({type(e).__name__}); chunks were stored without categories - "
-                        "fix the taxonomy and run scripts/backfill.py --apply")
+                        "fix the taxonomy and run scripts/label_documents.py --apply")
         return None
 
 BM25_TAG_FIELDS = ("categories", "is_content", "file_name")
@@ -117,7 +117,7 @@ BM25_TAG_FIELDS = ("categories", "is_content", "file_name")
 def bm25_tags(metadata: dict, taxonomy, namespace: str) -> dict:
     """The labels a chunk's keyword-index entry carries, taken from the metadata stored in Pinecone, so a
     filtered keyword search sees the same categories as a filtered vector search. The title is the
-    taxonomy's (not the loader's), exactly what scripts/backfill.py would write, so a backfill run
+    taxonomy's (not the loader's), exactly what scripts/label_documents.py would write, so a labelling run
     after ingestion has nothing left to change."""
     tags = {key: metadata[key] for key in BM25_TAG_FIELDS if key in metadata}
     if taxonomy is not None:

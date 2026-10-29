@@ -40,7 +40,7 @@ def _existing_ids(index, namespace: str, doc_id: str) -> list[str]:
 def tag_chunks(chunks: dict[str, Document], namespace: str, taxonomy) -> None:
     """Put the taxonomy's labels (categories, is_content, title) on each chunk's metadata, in place.
 
-    These are the same fields scripts/backfill.py writes on chunks stored earlier (shared/taxonomy/tagging.py),
+    These are the same fields scripts/label_documents.py writes on chunks stored earlier (shared/taxonomy/tagging.py),
     so a chunk is tagged the same way whenever it was ingested. When the uploaded file name is known it decides
     which taxonomy document the chunk belongs to, because the stored source is a signed or temp name.
     """

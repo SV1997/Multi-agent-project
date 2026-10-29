@@ -5,6 +5,7 @@ from psycopg_pool import AsyncConnectionPool
 # `--loop app.main:loop_factory` to uvicorn for psycopg compatibility.
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from .core.config import CHECKPOINTER_DB_URL
+from .core import config as app_config
 from .graph.supervisor import set_supervisor_agent
 from langgraph.store.postgres import AsyncPostgresStore
 import asyncio
@@ -61,7 +62,7 @@ app=FastAPI(lifespan=lifespan)
 app.include_router(router,prefix="/api/v1")
 @app.get("/health")
 def health():
-    return {"status":"ok", "service":"orchastrator-service"}
+    return {"status":"ok", "service":"orchastrator-service", "localize": app_config.LOCALIZE}
 
 
 

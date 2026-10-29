@@ -1,6 +1,6 @@
-"""Phase 4: the real supervisor graph is wired the way the frame step needs.
-Run from services/orchestrator:  python -m pytest tests/test_graph_wiring.py
+"""The real supervisor graph has the frame step between authorization and the domain agents.
 
+Run from services/orchestrator:  python -m pytest tests/test_graph_wiring.py
 The real graph is built with dummy API keys. Building it connects to nothing; no model is called.
 """
 import os
@@ -10,6 +10,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
+
+DOMAIN_AGENTS = ("legal_agent", "hr_agent", "finance_agent", "support_agent", "engineering_agent")
 
 
 @pytest.fixture(scope="module")
@@ -30,26 +32,20 @@ def edges_of(graph):
     return {(e.source, e.target) for e in graph.get_graph().edges}
 
 
-DOMAIN_AGENTS = ("legal_agent", "hr_agent", "finance_agent", "support_agent", "engineering_agent")
-
-
-@pytest.mark.parametrize("level", ["off", "filter", "full"])
-def test_the_frame_step_sits_between_authorization_and_the_domain_agents(supervisor, monkeypatch, level):
-    edges = edges_of(build(supervisor, monkeypatch, level))
-
+def test_the_frame_step_sits_between_authorization_and_the_domain_agents(supervisor, monkeypatch):
+    edges = edges_of(build(supervisor, monkeypatch, "off"))
     assert ("check_authorization", "frame_query") in edges
-    assert ("check_authorization", "access_denied") in edges                       # denied users still stop here
     for agent in DOMAIN_AGENTS:
         assert ("check_authorization", agent) not in edges                         # no way around the frame step
         assert ("frame_query", agent) in edges
-    assert ("frame_query", "ask_for_slot") in edges and ("ask_for_slot", "__end__") in edges
+    assert ("frame_query", "access_denied") in edges                              # denied users still stop here
 
 
-@pytest.mark.parametrize("level", ["off", "full"])
-def test_the_trace_step_runs_after_the_review_gate_and_before_memory(supervisor, monkeypatch, level):
-    edges = edges_of(build(supervisor, monkeypatch, level))
-    assert ("human_review_gate", "trace_query") in edges and ("trace_query", "memory_add") in edges
-    assert ("human_review_gate", "memory_add") not in edges
+def test_there_is_no_clarifying_question_and_no_trace_step(supervisor, monkeypatch):
+    edges = edges_of(build(supervisor, monkeypatch, "off"))
+    names = {name for edge in edges for name in edge}
+    assert not names & {"ask_for_slot", "trace_query"}
+    assert ("human_review_gate", "memory_add") in edges
 
 
 def test_the_rest_of_the_graph_is_unchanged(supervisor, monkeypatch):
@@ -60,68 +56,22 @@ def test_the_rest_of_the_graph_is_unchanged(supervisor, monkeypatch):
         assert edge in edges
 
 
-def test_the_graph_has_the_same_shape_at_every_level(supervisor, monkeypatch):
-    shapes = {level: edges_of(build(supervisor, monkeypatch, level)) for level in ("off", "filter", "prompt", "full")}
-    assert shapes["off"] == shapes["filter"] == shapes["prompt"] == shapes["full"]
+def test_the_graph_has_the_same_shape_whether_localization_is_off_or_on(supervisor, monkeypatch):
+    assert edges_of(build(supervisor, monkeypatch, "off")) == edges_of(build(supervisor, monkeypatch, "on"))
 
 
-def test_with_localize_off_no_frames_or_taxonomy_are_loaded(supervisor, monkeypatch):
+def test_with_localize_off_the_frames_are_not_even_loaded(supervisor, monkeypatch):
     def must_not_run(*_args, **_kwargs):
         raise AssertionError("loaded while LOCALIZE=off")
-    monkeypatch.setattr(supervisor, "load_taxonomy", must_not_run)
     monkeypatch.setattr(supervisor, "load_registry", must_not_run)
     build(supervisor, monkeypatch, "off")                                          # does not raise
 
 
-def test_with_localize_on_the_real_frames_are_validated_at_startup(supervisor, monkeypatch):
-    calls = []
-    real = supervisor.load_registry
-    monkeypatch.setattr(supervisor, "load_registry", lambda taxonomy: calls.append(1) or real(taxonomy))
-    build(supervisor, monkeypatch, "filter")
-    assert calls == [1]
-
-
-def test_an_invalid_frames_file_stops_startup_when_localize_is_on(supervisor, monkeypatch):
-    from app.graph.frames.registry import FrameError
-
+def test_with_localize_on_a_broken_frames_file_stops_startup(supervisor, monkeypatch):
     def broken(_taxonomy):
-        raise FrameError("frames are invalid: hr: frame 'hr.x': unknown category 'nope'")
+        raise ValueError("frames.yaml is invalid: hr: frame 'hr.x': unknown category 'nope'")
     monkeypatch.setattr(supervisor, "load_registry", broken)
 
-    with pytest.raises(FrameError, match="unknown category 'nope'"):
-        build(supervisor, monkeypatch, "full")
+    with pytest.raises(ValueError, match="unknown category 'nope'"):
+        build(supervisor, monkeypatch, "on")
     build(supervisor, monkeypatch, "off")                                          # but off never looks at the frames
-
-
-@pytest.mark.parametrize("level, expects_taxonomy", [("off", False), ("filter", True), ("full", True)])
-def test_the_frame_step_gets_the_taxonomy_for_widening_only_when_localization_is_on(supervisor, monkeypatch, level, expects_taxonomy):
-    seen = {}
-    real = supervisor.make_frame_query_node
-    monkeypatch.setattr(supervisor, "make_frame_query_node",
-                        lambda *args, **kwargs: seen.update(kwargs) or real(*args, **kwargs))
-    build(supervisor, monkeypatch, level)
-    assert (seen["taxonomy"] is not None) is expects_taxonomy
-
-
-@pytest.mark.parametrize("level, loads", [("off", False), ("filter", False), ("prompt", True), ("full", True)])
-def test_the_category_prompts_are_loaded_only_at_the_levels_that_use_them(supervisor, monkeypatch, level, loads):
-    loaded, seen = [], {}
-    real_load, real_node = supervisor.load_category_prompts, supervisor.make_frame_query_node
-    monkeypatch.setattr(supervisor, "load_category_prompts", lambda taxonomy: loaded.append(1) or real_load(taxonomy))
-    monkeypatch.setattr(supervisor, "make_frame_query_node", lambda *args, **kwargs: seen.update(kwargs) or real_node(*args, **kwargs))
-    build(supervisor, monkeypatch, level)
-    assert bool(loaded) is loads and (seen["prompts"] is not None) is loads
-
-
-def test_an_invalid_prompts_file_stops_startup_at_the_prompt_levels_only(supervisor, monkeypatch):
-    from app.graph.frames.prompts import PromptError
-
-    def broken(_taxonomy):
-        raise PromptError("category prompts are invalid: hr: category 'leave' has no prompt")
-    monkeypatch.setattr(supervisor, "load_category_prompts", broken)
-
-    build(supervisor, monkeypatch, "off")
-    build(supervisor, monkeypatch, "filter")                                       # the prompts are not used at these levels
-    for level in ("prompt", "full"):
-        with pytest.raises(PromptError, match="has no prompt"):
-            build(supervisor, monkeypatch, level)

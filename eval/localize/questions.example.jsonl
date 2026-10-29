@@ -1,5 +1,0 @@
-# FORMAT EXAMPLES ONLY. These three rows show the fields; they are not real evaluation data and have no reference answers.
-# Copy this file to questions.jsonl, delete these rows and write your own questions and answers from the policy documents.
-{"id": "EXAMPLE-1", "split": "tune", "domain": "hr", "question": "EXAMPLE: how many days of earned leave do I get?", "expected_frame": "hr.leave_entitlement", "expected_categories": ["earned_leave"], "needs_clarification": false, "reference_answer": ""}
-{"id": "EXAMPLE-2", "split": "tune", "domain": "hr", "question": "EXAMPLE: how many days of leave do I get?", "expected_frame": "hr.leave_entitlement", "expected_categories": ["earned_leave", "casual_and_sick_leave"], "needs_clarification": true, "reference_answer": ""}
-{"id": "EXAMPLE-3", "split": "heldout", "domain": "hr", "question": "EXAMPLE: what is the notice period if I resign?", "expected_frame": "hr.notice_period", "expected_categories": ["resignation_and_notice"], "needs_clarification": true, "reference_answer": ""}

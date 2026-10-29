@@ -17,12 +17,10 @@ SERVICE_HEALTH_URLS = {
     "api-gateway": os.getenv("API_GATEWAY_URL", "http://api-gateway:3000"),
 }
 
-# Localized search. off = exactly today's behaviour (the query-frame step does nothing). filter / prompt / full turn
-# on the frame step and the category-restricted search; prompt adds category instructions to the answering
-# prompt; full also asks the user a question when a frame needs information the user has not given.
-# An unknown value counts as off. The retrieval service reads its own LOCALIZE setting.
-LOCALIZE_LEVELS = ("off", "filter", "prompt", "full")
+# Localized search. "on" = each question is sorted into a frame before the search, the search is narrowed to the
+# frame's categories and the answering prompt says what the question is about. "off" = nothing changes.
+# Anything else is off. The retrieval service reads its own LOCALIZE setting.
 LOCALIZE = os.getenv("LOCALIZE", "off").strip().lower()
-if LOCALIZE not in LOCALIZE_LEVELS:
-    logging.getLogger(__name__).warning("LOCALIZE=%r is not one of %s; using 'off'", LOCALIZE, LOCALIZE_LEVELS)
+if LOCALIZE not in ("on", "off"):
+    logging.getLogger(__name__).warning("LOCALIZE=%r is not 'on' or 'off'; using 'off'", LOCALIZE)
     LOCALIZE = "off"

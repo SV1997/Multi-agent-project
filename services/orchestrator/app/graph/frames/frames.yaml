@@ -1,41 +1,51 @@
-# Hand-written query frames. EDIT THIS FILE.
-#
-# The three frames below are EXAMPLES that show the format; keep, change or delete them. They contain no policy
-# facts - only the kind of question, the categories that can answer it, and what to ask when information is missing.
-#
-# Besides these, one frame per leaf category of policy_taxonomy.yaml is generated automatically
-# (id "<domain>.<category>"), and "<domain>.other" means "none of the above". So you only write a frame here
-# when a kind of question needs slots, or spans several categories.
-#
-# Format:
-#   <domain>:
-#     <domain>.<name>:                 the id must start with the domain and must not be a generated id
-#       description: "..."             shown to the model in the menu - write it for the model
-#       categories: [a, b]             taxonomy categories to search (leaf categories; "non_content" is not allowed)
-#       required_slots:                slot name -> the question to ask the user if they have not said it
-#         leave_type: "Which kind of leave do you mean?"
-#       optional_slots: [grade]        slots that sharpen the answer but never block it
-version: 1
+# The query frames, written by hand. A frame is a named kind of question and the policy categories that answer it.
+#   id           "<domain>.<name>"
+#   description  finishes the sentence "This question is about ..." and is what the model reads in its menu, so
+#                write it for the model
+#   categories   categories from shared/taxonomy/policy_taxonomy.yaml. Naming a parent (like "leave") also searches
+#                everything under it, so list a parent when the frame should cover all of its children.
+# A name that is not in the taxonomy stops the service at startup.
+version: 2
 
 hr:
-  # EXAMPLE - edit or delete
   hr.leave_entitlement:
-    description: "How many days of a kind of leave an employee gets, who is eligible, and how it is taken"
+    description: "how many days of a kind of leave an employee gets, who is eligible and how it is taken"
     categories: [earned_leave, casual_and_sick_leave, family_leave]
-    required_slots:
-      leave_type: "Which kind of leave do you mean (earned, casual, sick, maternity, or another)?"
-    optional_slots: [employment_type]
-
-  # EXAMPLE - edit or delete
+  hr.leave_overview:
+    description: "leave in general: the kinds of leave and how leave works"
+    categories: [leave]
+  hr.provident_fund:
+    description: "provident fund and gratuity: who is eligible, what is contributed and what is paid out"
+    categories: [provident_fund_and_gratuity]
   hr.notice_period:
-    description: "How long the notice period is when resigning, and how it can be shortened or bought out"
+    description: "how long the notice period is when resigning, and how it can be shortened or bought out"
     categories: [resignation_and_notice]
-    required_slots:
-      employment_status: "Are you a confirmed employee, or still on probation?"
-    optional_slots: [grade]
 
-  # EXAMPLE - edit or delete
-  hr.leave_carry_forward:
-    description: "Carrying leave forward to the next year, what expires at year end, and encashment of leave"
-    categories: [earned_leave, casual_and_sick_leave, comp_off_and_lwp]
-    optional_slots: [leave_type]
+finance:
+  finance.expense_reimbursement:
+    description: "claiming back business expenses: travel, receipts and what cannot be reimbursed"
+    categories: [expense_reimbursement]
+  finance.procurement:
+    description: "buying goods and services: purchasing procedures, choosing vendors and special purchases"
+    categories: [procurement]
+
+legal:
+  legal.data_subject_rights:
+    description: "the rights people have over their personal data, such as access, correction and erasure"
+    categories: [data_subject_rights]
+  legal.penalties:
+    description: "fines, remedies and liability when data protection rules are broken"
+    categories: [enforcement_and_penalties]
+
+support:
+  support.access_and_network:
+    description: "passwords, account access, the network and the VPN"
+    categories: [password_and_access_policy, network_and_vpn]
+  support.assets_and_backup:
+    description: "requesting software and equipment, and backing up and recovering data"
+    categories: [software_and_asset_requests, backup_and_recovery]
+
+engineering:
+  engineering.docker_builds:
+    description: "writing Dockerfiles and building container images"
+    categories: [container_build_practices]

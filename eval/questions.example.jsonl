@@ -1,0 +1,5 @@
+{"question": "EXAMPLE - How many casual leaves do I get?", "domain": "hr", "expected_category": "casual_and_sick_leave", "split": "tune"}
+{"question": "EXAMPLE - Tell me about leave.", "domain": "hr", "expected_category": "leave", "split": "tune"}
+{"question": "EXAMPLE - Is PF deducted from my salary?", "domain": "hr", "expected_category": "provident_fund_and_gratuity", "split": "test"}
+{"question": "EXAMPLE - What are the rules for writing a Dockerfile?", "domain": "engineering", "expected_category": "container_build_practices", "split": "tune"}
+{"question": "EXAMPLE - What fines can a supervisory authority impose under the GDPR?", "domain": "legal", "expected_category": "enforcement_and_penalties", "split": "test"}
