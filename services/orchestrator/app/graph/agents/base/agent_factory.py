@@ -14,7 +14,6 @@ from .nodes import retrieve_sql_context
 from shared.contracts.schema import AgentAnswer, AgentAnswerLLM, RetrievalAssessment, RetrievalPlan, RewrittenQuery, SQLQuerySelection
 from langchain_core.runnables import RunnableConfig
 from ...context_policy import ledger_first, is_ledger
-from ...frames.prompts import choose_prompt_block
 logger = logging.getLogger(__name__)
 
 def route_after_reason(state:AgentState)-> str:
@@ -172,14 +171,11 @@ STEP 2 - OTHERWISE CHOOSE A SOURCE.
 
     async def prepare_retrieval(state: AgentState) -> dict:
         """Reset retrieval state once per incoming user turn."""
-        # The frame step may have rewritten the question so it stands on its own ("it" -> what it refers to);
-        # it is None unless localization is on, so otherwise the user's own message is used, as always.
-        query = state.get("rewritten_query") or latest_human_query(state)
+        query = latest_human_query(state)
         return {
             "original_query": query,
             "search_query": query,
             "retrieval_attempts": 0,
-            "retrieval_calls": 0,
             "max_retrieval_attempts": 3,
             "retrieval_quality": None,
             "retrieval_assessment": None,
@@ -251,11 +247,7 @@ STEP 2 - OTHERWISE CHOOSE A SOURCE.
     def route_after_grading(state: AgentState) -> str:
         if state.get("retrieval_quality") == "relevant" or state.get("retrieval_can_use_tool"):
             return "reason"
-        # retrieval_attempts also counts every query rewrite, so the cap of 3 allows only two searches. A localized
-        # search must still be allowed to reach its last, widest level, so while one is left it is not exhausted.
-        levels = state.get("localize_levels")
-        widening_left = bool(levels) and state.get("retrieval_calls", 0) < len(levels)
-        exhausted= state.get("retrieval_attempts", 0) >= state.get("max_retrieval_attempts", 3) and not widening_left
+        exhausted= state.get("retrieval_attempts", 0) >= state.get("max_retrieval_attempts", 3)
         if not exhausted and state.get("retrieval_source")=="vector":
             return "rewrite_query"
         if not state.get("fallback_used") and "sql" in retrieval_method and "vector" in retrieval_method:
@@ -370,6 +362,7 @@ Never invent a contract number or claim ID that is not explicitly present in the
     async def reason(state:AgentState)-> dict:
         thread_facts = state.get("thread_facts") or "none"
         conversation_memories = state.get("conversation_memories") or ""
+        scope = f"{state['localize_scope']}\n\n" if state.get("localize_scope") else ""
         context = build_context_prompt(state)
         remaining = state["tool_calls_remaining"]
         long_term_memory = state.get("long_term_memory")
@@ -402,7 +395,7 @@ f"{long_term_memory}\n\n"
                 "long-term memory and document text for the same field:\n"
                 f"{thread_facts}\n\n"
                 f"{conversation_memories}\n\n"
-                f"{choose_prompt_block(state)}"
+                f"{scope}"
                 f"Context:{context}"
             ))
             ] + message

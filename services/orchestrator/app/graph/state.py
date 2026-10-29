@@ -31,22 +31,10 @@ class AgentState(TypedDict):
     thread_facts: str |None
     conversation_memories: list[str] |None
     search_failures: int
-    # categories the search is narrowed to (set by the query frame); None = search the whole domain
+    # categories the search is narrowed to (set by frame_query_node); None = search the whole domain
     localize_categories: list[str] | None
-    # the query frame step (app/graph/frames): the chosen frame, the slots the user gave, what is still missing,
-    # the question to ask if something is, the question rewritten to stand on its own, and the trace of it all
-    frame_id: str | None
-    frame_slots: dict | None
-    missing_slots: list[str] | None
-    clarifying_question: str | None
-    rewritten_query: str | None
-    query_dag: dict | None
-    asked_frame_id: str | None      # the frame that asked a clarifying question; remembered for the next turn only
-    # widening (frames/widen.py): the search plan [{"level", "categories"}], how many vector searches this question
-    # has made, the level of the latest one (= the level the evidence came from), and every level tried so far
-    localize_levels: list[dict] | None
-    retrieval_calls: int
-    fallback_level: int | None
-    levels_tried: list[int] | None
-    # category instructions for the answering prompt ({"base", "strict", "widened"}; frames/prompts.py), prompt/full levels only
-    category_prompts_text: dict | None
+    # set by frame_query_node: which frame was chosen, and the sentence added to the answering prompt
+    localize_frame_id: str | None
+    localize_scope: str | None
+    # True when the filtered search found nothing and the retrieval service searched the whole domain instead
+    localize_fallback_used: bool | None

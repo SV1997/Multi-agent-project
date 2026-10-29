@@ -30,13 +30,17 @@ class FakeStore:
     """Records how it was searched, and returns whatever documents the test put in `results`."""
     calls: list = []
     results: list = []
+    unfiltered = None          # what a search WITHOUT a filter returns; None means the same as `results`
 
     def __init__(self, **_):
         pass
 
     def similarity_search_with_score(self, *args, **kwargs):
         FakeStore.calls.append(kwargs)
-        return [(doc, 0.0) for doc in FakeStore.results[: kwargs["k"]]]
+        documents = FakeStore.results
+        if "filter" not in kwargs and FakeStore.unfiltered is not None:
+            documents = FakeStore.unfiltered
+        return [(doc, 0.0) for doc in documents[: kwargs["k"]]]
 
 
 class FakeBm25:
@@ -78,16 +82,18 @@ def search(monkeypatch):
 
     monkeypatch.setattr(ns, "load_bm25", fake_bm25)
 
-    def run(localize="off", categories=None, vector=(), top_k=10, namespace="hr", keyword_index=True):
+    def run(localize="off", categories=None, vector=(), top_k=10, namespace="hr", keyword_index=True, unfiltered=None):
         monkeypatch.setattr(config, "LOCALIZE", localize)
         has_index["on"] = keyword_index
         FakeStore.calls = []
         FakeStore.results = list(vector)
+        FakeStore.unfiltered = list(unfiltered) if unfiltered is not None else None
         # model_construct skips validation: the contract only allows the five domains, and "coding" is meant to
         # show what happens if a request for it ever got this far
         request = RetrievalQuery.model_construct(query="how many leave days", namespace=namespace, top_k=top_k,
                                                  categories=categories)
         response = asyncio.run(ns.query_namespace(request))
+        run.response = response
         return {c.content: c for c in response.results}, FakeStore.calls[0]
 
     return run
@@ -106,57 +112,89 @@ def test_with_localize_off_the_search_is_exactly_what_it_was(search):
 # ---------------------------------------------------------------- the Pinecone filter
 
 def test_the_vector_search_gets_a_content_and_category_filter(search):
-    _, vector_call = search(localize="filter", categories=["leave", "earned_leave"])
+    _, vector_call = search(localize="on", categories=["leave", "earned_leave"])
     assert vector_call["filter"] == {"$and": [{"categories": {"$in": ["leave", "earned_leave"]}}, CONTENT_ONLY]}
 
 
 @pytest.mark.parametrize("categories", [None, []])
 def test_without_categories_only_the_content_rule_applies(search, categories):
-    _, vector_call = search(localize="filter", categories=categories)
+    _, vector_call = search(localize="on", categories=categories)
     assert vector_call["filter"] == CONTENT_ONLY
 
 
-@pytest.mark.parametrize("level", ["filter", "prompt", "full"])
-def test_every_level_above_off_filters(search, level):
-    _, vector_call = search(localize=level, categories=["leave"])
+def test_with_localize_on_a_request_with_categories_is_filtered(search):
+    _, vector_call = search(localize="on", categories=["leave"])
     assert "filter" in vector_call
 
 
 # ---------------------------------------------------------------- the keyword filter
 
 def test_keyword_search_keeps_only_content_chunks_in_the_requested_categories(search):
-    results, _ = search(localize="filter", categories=["leave"])
+    results, _ = search(localize="on", categories=["leave"])
     assert set(results) == {"A", "F"}        # B wrong category, C no labels, D not content, E plain string
 
 
 def test_keyword_ranks_are_counted_after_filtering(search):
-    results, _ = search(localize="filter", categories=["leave"])
+    results, _ = search(localize="on", categories=["leave"])
     # A and F are the 5th and 6th best keyword hits, but after filtering they are ranks 1 and 2
     assert results["A"].score == pytest.approx(1 / 61)
     assert results["F"].score == pytest.approx(1 / 62)
 
 
 def test_without_categories_keyword_search_keeps_every_content_chunk(search):
-    results, _ = search(localize="filter", categories=None)
+    results, _ = search(localize="on", categories=None)
     assert set(results) == {"B", "A", "F"}
 
 
 def test_keyword_only_hits_carry_their_labels(search):
-    results, _ = search(localize="filter", categories=["leave"])
+    results, _ = search(localize="on", categories=["leave"])
     assert results["A"].metadata == {"source": "s.pdf", "categories": ["leave"], "is_content": True, "title": "Handbook"}
 
 
 def test_a_text_found_by_both_searches_adds_both_ranks(search):
     both = Document(page_content="A", metadata={"source": "s.pdf", "categories": ["leave"], "is_content": True})
-    results, _ = search(localize="filter", categories=["leave"], vector=[both])
+    results, _ = search(localize="on", categories=["leave"], vector=[both])
     assert results["A"].score == pytest.approx(1 / 61 + 1 / 61)          # vector rank 1 and keyword rank 1
     assert results["A"].metadata["categories"] == ["leave"]               # the vector search's own metadata is kept
 
 
+# ---------------------------------------------------------------- one fallback when the filtered search finds nothing
+
+def labelled(text):
+    return Document(page_content=text, metadata={"source": "s.pdf", "categories": ["pay"], "is_content": True})
+
+
+def test_a_filtered_search_with_zero_results_triggers_exactly_one_unfiltered_search(search):
+    results, _ = search(localize="on", categories=["tax"], vector=[], unfiltered=[labelled("W")])
+    assert len(FakeStore.calls) == 2
+    assert "filter" in FakeStore.calls[0] and "filter" not in FakeStore.calls[1]      # the second search has no filter at all
+    assert search.response.fallback_used is True and "W" in results
+
+
+def test_a_search_that_finds_something_does_not_fall_back(search):
+    search(localize="on", categories=["leave"], vector=[labelled("V")], unfiltered=[labelled("W")])
+    assert len(FakeStore.calls) == 1 and search.response.fallback_used is False
+
+
+def test_the_fallback_runs_once_even_if_the_unfiltered_search_is_empty_too(search):
+    results, _ = search(localize="on", categories=["tax"], vector=[], unfiltered=[], keyword_index=False)
+    assert len(FakeStore.calls) == 2 and results == {} and search.response.fallback_used is True
+
+
+def test_with_localize_off_an_empty_search_does_not_retry(search):
+    search(localize="off", categories=["tax"], vector=[], keyword_index=False)
+    assert len(FakeStore.calls) == 1 and search.response.fallback_used is False
+
+
+def test_without_categories_there_is_nothing_to_fall_back_from(search):
+    search(localize="on", categories=None, vector=[], keyword_index=False)
+    assert len(FakeStore.calls) == 1 and search.response.fallback_used is False
+
+
 # ---------------------------------------------------------------- a domain without a keyword index (support)
 
-@pytest.mark.parametrize("level", ["off", "filter", "prompt", "full"])
-def test_a_missing_keyword_index_falls_back_to_vector_only_at_every_level(search, level):
+@pytest.mark.parametrize("level", ["off", "on"])
+def test_a_missing_keyword_index_falls_back_to_vector_only(search, level):
     found = Document(page_content="V", metadata={"source": "s.pdf", "categories": ["leave"], "is_content": True})
     results, vector_call = search(level, categories=["leave"], vector=[found], namespace="support", keyword_index=False)
 
@@ -192,7 +230,7 @@ def test_the_request_contract_does_not_accept_the_coding_namespace():
 def test_a_namespace_outside_the_taxonomy_is_searched_exactly_as_with_localize_off(search):
     found = Document(page_content="code", metadata={"source": "x.py"})        # coding chunks carry no labels
     off_results, off_call = search("off", categories=["leave"], vector=[found], namespace="coding")
-    full_results, full_call = search("full", categories=["leave"], vector=[found], namespace="coding")
+    full_results, full_call = search("on", categories=["leave"], vector=[found], namespace="coding")
 
     assert set(full_call) == {"query", "k"} == set(off_call)                  # no filter argument at all
     assert set(full_results) == set(off_results)                              # the unlabeled keyword chunks are kept too
@@ -247,7 +285,7 @@ def test_the_request_contract_has_optional_categories():
     assert RetrievalQuery(query="q", namespace="hr", categories=["leave"]).categories == ["leave"]
 
 
-@pytest.mark.parametrize("value, expected", [(None, "off"), ("filter", "filter"), (" FULL ", "full"), ("nonsense", "off")])
+@pytest.mark.parametrize("value, expected", [(None, "off"), ("on", "on"), (" ON ", "on"), ("off", "off"), ("filter", "off"), ("full", "off"), ("nonsense", "off")])
 def test_the_setting_reads_the_environment_and_falls_back_to_off(monkeypatch, value, expected):
     try:
         if value is None:

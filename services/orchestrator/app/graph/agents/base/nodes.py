@@ -26,25 +26,8 @@ async def retrieve_context(state:AgentState)-> dict:
         "namespace": namespace,
         "top_k": 5
     }
-    # Categories narrow the search to one part of the domain (localized search). Without any, the request is
-    # exactly what it always was. When the frame step left a search plan, each new search in the same question
-    # follows it one level wider (own categories -> the parents' families -> the whole domain), and the level is
-    # recorded so it is known which level the evidence came from.
-    levels = state.get("localize_levels")
-    trace = {}
-    if levels:
-        call_number = state.get("retrieval_calls", 0)
-        step = levels[min(call_number, len(levels) - 1)]
-        categories = step["categories"]
-        trace = {
-            "retrieval_calls": call_number + 1,
-            "fallback_level": step["level"],
-            "levels_tried": list(state.get("levels_tried") or []) + [step["level"]],
-        }
-        logger.info("Search %d of this question: level %d, categories %s", call_number + 1, step["level"],
-                    categories if categories else "the whole domain")
-    else:
-        categories = state.get("localize_categories")
+    # Categories narrow the search to one part of the domain. Without any, the request is what it always was.
+    categories = state.get("localize_categories")
     if categories:
         payload["categories"] = categories
 
@@ -57,11 +40,14 @@ async def retrieve_context(state:AgentState)-> dict:
         response.raise_for_status()
         data = response.json()
         print(data)
-    return {
+    update = {
         "retrieved_context": data["results"],
         "retrieval_attempts": state.get("retrieval_attempts", 0) + 1,
-        **trace,
     }
+    if categories:
+        # the retrieval service says when the filtered search found nothing and it searched the whole domain instead
+        update["localize_fallback_used"] = bool(data.get("fallback_used"))
+    return update
 
 async def retrieve_sql_context(state:AgentState, function:str, extracted_data:dict)->dict:
         query = state.get("search_query")

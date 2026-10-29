@@ -10,23 +10,13 @@ from ..core.config import PINECONE_INDEX_NAME
 from .reranker import rerank
 from .filters import pinecone_filter, keyword_chunk_allowed, chunk_tags, LOCALIZED_NAMESPACES
 import asyncio
+import logging
 from ..storage.bm25score import load_bm25
 
-async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
-    start = time.time()
-    # With re-ranking on, fuse a wider candidate pool, then let the cross-encoder pick top_k.
-    candidates = max(cfg.RERANK_CANDIDATES, req.top_k) if cfg.RERANK_ENABLED else req.top_k
+logger = logging.getLogger(__name__)
 
-    vector_store = PineconeVectorStore(
-        embedding=embeddings,
-        index_name=PINECONE_INDEX_NAME,
-        namespace=req.namespace
-    )
-
-    # With LOCALIZE off the search is exactly what it always was (no filter is even passed). The same holds for a
-    # namespace outside the taxonomy (coding): its chunks have no labels, so any filter would hide all of them.
-    localize = cfg.LOCALIZE != "off" and req.namespace in LOCALIZED_NAMESPACES
-    categories = req.categories if localize else None
+def search(vector_store, bm25_data, req: RetrievalQuery, candidates: int, categories, localize: bool) -> list[RetrievedChunk]:
+    """The filtered search and the fallback must run the identical search, so it is one function."""
     if localize:
         results = vector_store.similarity_search_with_score(
             query= req.query,
@@ -38,8 +28,6 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
             query= req.query,
             k=candidates
         )
-
-    bm25_data = await load_bm25(req.namespace)
 
     rrf_score ={}
 
@@ -82,6 +70,33 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
     ]
     chunks.sort(key=lambda c: c.score, reverse=True)
     chunks = chunks[:candidates]
+    return chunks
+
+
+async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
+    start = time.time()
+    # With re-ranking on, fuse a wider candidate pool, then let the cross-encoder pick top_k.
+    candidates = max(cfg.RERANK_CANDIDATES, req.top_k) if cfg.RERANK_ENABLED else req.top_k
+
+    vector_store = PineconeVectorStore(
+        embedding=embeddings,
+        index_name=PINECONE_INDEX_NAME,
+        namespace=req.namespace
+    )
+
+    # With LOCALIZE off the search is exactly what it always was (no filter is even passed). The same holds for a
+    # namespace outside the taxonomy (coding): its chunks have no labels, so any filter would hide all of them.
+    localize = cfg.LOCALIZE != "off" and req.namespace in LOCALIZED_NAMESPACES
+    categories = req.categories if localize else None
+    bm25_data = await load_bm25(req.namespace)
+    chunks = search(vector_store, bm25_data, req, candidates, categories, localize)
+
+    # A wrong frame must cost one extra search, not an empty answer. Exactly one retry with no filter, then stop.
+    fallback_used = False
+    if localize and categories and not chunks:
+        fallback_used = True
+        logger.info("Nothing found in categories %s of %s; searching the whole domain", categories, req.namespace)
+        chunks = search(vector_store, bm25_data, req, candidates, None, False)
     if cfg.RERANK_ENABLED:
         chunks = await asyncio.to_thread(rerank, req.query, chunks, req.top_k)
     else:
@@ -92,6 +107,7 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
     return RetrievalResponse(
         results=chunks,
         namespace= req.namespace,
-        query_time_ms=round((time.time()-start)*1000,2)
+        query_time_ms=round((time.time()-start)*1000,2),
+        fallback_used=fallback_used
     )
 

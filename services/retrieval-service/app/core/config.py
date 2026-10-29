@@ -11,10 +11,9 @@ RERANK_ENABLED = os.getenv("RERANK_ENABLED", "false").lower() == "true"
 RERANK_MODEL = os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 RERANK_CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "20"))
 
-# Localized search. off = exactly today's behaviour. filter / prompt / full = searches only look at chunks that
-# are content and (when the request names categories) are in those categories. An unknown value counts as off.
-LOCALIZE_LEVELS = ("off", "filter", "prompt", "full")
+# Localized search. "on" = a request that names categories only searches chunks in those categories (and searches the
+# whole domain once if that finds nothing). "off" = every search covers the whole domain. Anything else is off.
 LOCALIZE = os.getenv("LOCALIZE", "off").strip().lower()
-if LOCALIZE not in LOCALIZE_LEVELS:
-    logging.getLogger(__name__).warning("LOCALIZE=%r is not one of %s; using 'off'", LOCALIZE, LOCALIZE_LEVELS)
+if LOCALIZE not in ("on", "off"):
+    logging.getLogger(__name__).warning("LOCALIZE=%r is not 'on' or 'off'; using 'off'", LOCALIZE)
     LOCALIZE = "off"

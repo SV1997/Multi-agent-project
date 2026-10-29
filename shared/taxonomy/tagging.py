@@ -1,13 +1,13 @@
 """The metadata fields a chunk carries once it has been categorized.
 
-Why this file exists: three places need to agree on what a "tagged" chunk looks like - the backfill script
+Why this file exists: three places need to agree on what a "tagged" chunk looks like - the labelling script
 (chunks already stored), the ingestion service (new chunks) and retrieval (the filter it builds). If each
 one worked out the fields on its own, a small difference (say, how "is_content" is decided) would make some
 chunks invisible to a filtered search. So the rules live here, once.
 
 Problem it solves: turn the taxonomy's answer for a chunk into the exact fields stored in Pinecone and in the
 BM25 index, and work out the smallest change needed when a chunk already has some of them (so re-running a
-backfill does nothing for chunks that are already right).
+the labelling script does nothing for chunks that are already right).
 
 Fields:
     categories      list of category names (what the search filter matches on)
