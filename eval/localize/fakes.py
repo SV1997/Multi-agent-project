@@ -22,9 +22,8 @@ class FakeClient:
 
     def _source(self, row: dict, wanted_overlap: bool) -> str | None:
         expected = set(row["expected_categories"])
-        mixed = self.taxonomy.mixed.get(row["domain"], frozenset())
-        files = sorted(name for name, cats in self.taxonomy.documents.get(row["domain"], {}).items() if name not in mixed
-                       and bool(set(cats) & expected) == wanted_overlap)
+        files = sorted(name for name, cats in self.taxonomy.documents.get(row["domain"], {}).items()
+                       if bool(set(cats) & expected) == wanted_overlap)
         return files[_pick(row["id"], self.level, "source", len(files))] if files else None
 
     def __call__(self, row: dict) -> dict:

@@ -33,7 +33,7 @@ class FrameError(ValueError):
 
 @dataclass
 class FrameRegistry:
-    menus: dict[str, list[Frame]]                # domain -> ordered menu
+    menus: dict[str, list[Frame]]               
 
     def menu(self, domain: str) -> list[Frame]:
         return self.menus.get(domain, [])

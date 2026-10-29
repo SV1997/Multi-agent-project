@@ -61,7 +61,7 @@ Uses a fake client (`fakes.py`), writes to `results_dryrun/` (git-ignored) and l
 ## What the numbers mean
 
 - **wrong-category citations** - of the cited sources whose categories are known, the share whose categories share
-  nothing with the question's expected categories. Sources in documents with mixed categories are not judged.
+  nothing with the question's expected categories. Sources that are not in the taxonomy are not judged.
 - **frame accuracy** - questions sorted into exactly the expected frame (no frame counts as wrong).
 - **clarification correct** - asked a clarifying question exactly when one was needed (only `full` asks).
 - **fallback rate** - questions whose evidence came from a widened search; the table also gives the share answered

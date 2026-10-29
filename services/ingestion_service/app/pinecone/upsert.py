@@ -44,9 +44,9 @@ def tag_chunks(chunks: dict[str, Document], namespace: str, taxonomy) -> None:
     so a chunk is tagged the same way whenever it was ingested. When the uploaded file name is known it decides
     which taxonomy document the chunk belongs to, because the stored source is a signed or temp name.
     """
-    for chunk_id, doc in chunks.items():
+    for doc in chunks.values():
         source = str(doc.metadata.get("source", ""))
-        target = tag_fields(taxonomy, namespace, source, chunk_id, doc.metadata.get("file_name"))
+        target = tag_fields(taxonomy, namespace, source, doc.metadata.get("file_name"))
         doc.metadata.update(fields_to_set(target, doc.metadata))
 
 

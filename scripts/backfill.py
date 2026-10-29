@@ -1,7 +1,7 @@
 """Backfill: put the taxonomy's labels onto the chunks that are already stored.
 
 Why this exists: the taxonomy knows which categories every chunk belongs to, but the stored chunks do not
-carry that knowledge yet - it lives only in policy_taxonomy.yaml and chunk_overrides.json. A search cannot
+carry that knowledge yet - it lives only in policy_taxonomy.yaml. A search cannot
 filter on something the chunk does not carry. This script copies the labels onto each chunk, in Pinecone
 (metadata, no re-embedding) and in the BM25 keyword indexes kept in Neon.
 
@@ -53,7 +53,7 @@ def plan_pinecone(index, tax, namespaces):
         uncategorized_sources = Counter()
         for chunk_id, meta in all_chunks(index, ns):
             source = str(meta.get("source", ""))
-            target = tag_fields(tax, ns, source, chunk_id, meta.get("file_name"))
+            target = tag_fields(tax, ns, source, meta.get("file_name"))
             changes = fields_to_set(target, meta)
 
             count["chunks"] += 1
@@ -121,7 +121,7 @@ def plan_bm25(chunks, namespace, tax, targets):
         source = str(chunk.get("source", ""))
         target = targets.get((namespace, source, str(chunk.get("text", ""))))
         if target is None:
-            target = tag_fields(tax, namespace, source, None, chunk.get("file_name"))
+            target = tag_fields(tax, namespace, source, chunk.get("file_name"))
             count["no_pinecone_twin"] += 1
             if target["categories"] == [UNCATEGORIZED]:
                 count["no_twin_uncategorized"] += 1
@@ -228,7 +228,7 @@ def find_orphans(pinecone_items, bm25_chunks, namespace, tax):
             bm25_keys.add((source, text))
             bm25_texts.add(text)
             if (source, text) not in pine_keys:
-                categories = tag_fields(tax, namespace, source, None, chunk.get("file_name"))["categories"]
+                categories = tag_fields(tax, namespace, source, chunk.get("file_name"))["categories"]
                 bm25_only.append({"position": position, "source": source, "doc_id": chunk.get("doc_id"),
                                   "categories": categories, "text": snippet(text)})
         else:

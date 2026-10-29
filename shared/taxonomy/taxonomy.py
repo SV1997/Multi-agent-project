@@ -6,6 +6,12 @@ One file is the single source of truth for four users:
   retrieval        filters a search to the categories a query frame names
   evaluation       decides whether a retrieved chunk was in the right category
 
+How it works, in two steps:
+  1. parse_taxonomy() reads policy_taxonomy.yaml ONCE (load_taxonomy() caches the result), checks the file for
+     mistakes and builds a Taxonomy object. It never sees a document or a chunk.
+  2. For every chunk, the Taxonomy object is asked "which categories?" (for_chunk). The answer is looked up by
+     the chunk's file name in the table that step 1 built.
+
 policy_taxonomy.yaml format (one block per domain):
 
     hr:
@@ -15,12 +21,9 @@ policy_taxonomy.yaml format (one block per domain):
       documents:                          # source file name -> categories
         leave_policy_2025.pdf: {title: "Leave Policy 2025", categories: [leave_and_attendance]}
         benefits.md: [benefits_and_insurance]
-      mixed: [leave_policy_2025.pdf]      # documents classified chunk by chunk (chunk_overrides.json)
 
 Key documents by the source file name, the name a chunk's "source" ends with (or the name the file was uploaded
-under, which ingestion passes as file_name). In the index as it stands the stored doc_id is per chunk (the prefix
-of the chunk id changes from chunk to chunk), so it cannot identify a document. document_key() still honours a
-doc id if one is listed, but no entry in the yaml relies on that.
+under, which ingestion passes as file_name). A file name that is not listed gets the category "uncategorized".
 Files fetched from SeaweedFS are loaded through a temporary file, so a stored "source" can be a name like
 /tmp/tmpevoy1z0r.md; that is why ingestion tags new uploads with the uploaded file name.
 A title, when given, is written to the chunk metadata so citations show a readable name.
@@ -30,7 +33,6 @@ categories, and cite that document in the report.
 """
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -60,9 +62,7 @@ class Category:
 class Taxonomy:
     categories: dict[str, dict[str, Category]]          
     documents: dict[str, dict[str, tuple[str, ...]]]    
-    titles: dict[str, dict[str, str]]                   
-    mixed: dict[str, frozenset[str]]                    
-    overrides: dict[str, tuple[str, ...]]               
+    titles: dict[str, dict[str, str]]
 
     def names(self, domain: str) -> list[str]:
         return list(self.categories.get(domain, {}))
@@ -78,39 +78,25 @@ class Taxonomy:
                 frontier.extend(self.categories[domain][parent].parents)
         return seen
 
-    def document_key(self, domain: str, source: str, chunk_id: str | None = None,
-                     file_name: str | None = None) -> str | None:
-        """The taxonomy entry a chunk belongs to. Entries are keyed by source file name: the name the file was
+    def document_key(self, domain: str, source: str, file_name: str | None = None) -> str | None:
+        """The yaml entry a chunk belongs to. Entries are keyed by source file name: the name the file was
         uploaded under, else the last part of the chunk's source. The uploaded name wins over the source because
         a stored source is often a temp or signed name (tmpabc.pdf, <uuid>-handbook.pdf) that never matches the
-        yaml. A doc id is checked first only for entries that are keyed by one; the stored doc_id is per chunk in
-        the current index, so normally nothing matches there."""
+        yaml. None when the file is not listed."""
         docs = self.documents.get(domain, {})
-        doc_id = chunk_id.split("#", 1)[0] if chunk_id else None
-        if doc_id and doc_id in docs:
-            return doc_id
         if file_name and file_name in docs:
             return file_name
         name = source_key(source)
         return name if name in docs else None
 
-    def for_chunk(self, domain: str, source: str, chunk_id: str | None = None,
-                  file_name: str | None = None) -> tuple[str, ...]:
-        """Categories of one chunk: a chunk-level override first, then its document's categories."""
-        if chunk_id and chunk_id in self.overrides:
-            return self.overrides[chunk_id]
-        key = self.document_key(domain, source, chunk_id, file_name)
+    def for_chunk(self, domain: str, source: str, file_name: str | None = None) -> tuple[str, ...]:
+        """Categories of a chunk: the ones listed for its document, or ("uncategorized",) if the file is not listed."""
+        key = self.document_key(domain, source, file_name)
         return self.documents[domain][key] if key else (UNCATEGORIZED,)
 
-    def title_for(self, domain: str, source: str, chunk_id: str | None = None,
-                  file_name: str | None = None) -> str | None:
-        key = self.document_key(domain, source, chunk_id, file_name)
+    def title_for(self, domain: str, source: str, file_name: str | None = None) -> str | None:
+        key = self.document_key(domain, source, file_name)
         return self.titles.get(domain, {}).get(key) if key else None
-
-    def is_mixed(self, domain: str, source: str, chunk_id: str | None = None,
-                 file_name: str | None = None) -> bool:
-        key = self.document_key(domain, source, chunk_id, file_name)
-        return key is not None and key in self.mixed.get(domain, frozenset())
 
 
 def source_key(source: str) -> str:
@@ -119,12 +105,12 @@ def source_key(source: str) -> str:
     return unquote(path.rstrip("/").split("/")[-1])
 
 
-def parse_taxonomy(data: dict, overrides: dict | None = None) -> Taxonomy:
+def parse_taxonomy(data: dict) -> Taxonomy:
+    """Check the yaml data against itself and build the Taxonomy. Raises TaxonomyError listing every problem."""
     errors: list[str] = []
     categories: dict[str, dict[str, Category]] = {}
     documents: dict[str, dict[str, tuple[str, ...]]] = {}
     titles: dict[str, dict[str, str]] = {}
-    mixed: dict[str, frozenset[str]] = {}
 
     for domain, block in (data or {}).items():
         if domain == "version":
@@ -162,12 +148,6 @@ def parse_taxonomy(data: dict, overrides: dict | None = None) -> Taxonomy:
         documents[domain] = docs
         titles[domain] = doc_titles
 
-        mixed_files = frozenset(str(m) for m in (block.get("mixed") or ()))
-        for file_name in mixed_files:
-            if file_name not in docs:
-                errors.append(f"{domain}: mixed file '{file_name}' must also be listed under documents")
-        mixed[domain] = mixed_files
-
         for cat in cats.values():
             for p in cat.parents:
                 if p not in cats:
@@ -180,20 +160,12 @@ def parse_taxonomy(data: dict, overrides: dict | None = None) -> Taxonomy:
             if cat not in used and not is_parent:
                 errors.append(f"{domain}.{cat}: no document belongs to it")
 
-    tax = Taxonomy(categories, documents, titles, mixed, {})
     for domain, cats in categories.items():
         _check_acyclic(domain, cats, errors)
 
-    all_names = {(d, n) for d, cats in categories.items() for n in cats}
-    for chunk_id, entry in (overrides or {}).items():
-        domain, names = entry.get("domain"), tuple(entry.get("categories") or ())
-        if not names or any((domain, n) not in all_names for n in names):
-            errors.append(f"override for chunk {chunk_id} names an unknown category: {entry}")
-        tax.overrides[chunk_id] = names
-
     if errors:
         raise TaxonomyError("policy taxonomy is invalid:\n  " + "\n  ".join(errors))
-    return tax
+    return Taxonomy(categories, documents, titles)
 
 
 def _check_acyclic(domain: str, cats: dict[str, Category], errors: list[str]) -> None:
@@ -215,16 +187,14 @@ def _check_acyclic(domain: str, cats: dict[str, Category], errors: list[str]) ->
 
 
 @lru_cache(maxsize=1)
-def load_taxonomy(path: str | None = None, overrides_path: str | None = None) -> Taxonomy:
+def load_taxonomy(path: str | None = None) -> Taxonomy:
+    """Read policy_taxonomy.yaml (or POLICY_TAXONOMY_PATH, or `path`) and build the Taxonomy. Cached per process:
+    after editing the yaml, restart the service."""
     path = path or os.getenv("POLICY_TAXONOMY_PATH") or str(HERE / "policy_taxonomy.yaml")
-    overrides_path = overrides_path or os.getenv("CHUNK_OVERRIDES_PATH") or str(HERE / "chunk_overrides.json")
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    overrides = {}
-    if os.path.exists(overrides_path):
-        with open(overrides_path, encoding="utf-8") as f:
-            overrides = json.load(f)
-    return parse_taxonomy(data, overrides)
+    return parse_taxonomy(data)
+
 
 if __name__ == "__main__":
     t = load_taxonomy()

@@ -23,25 +23,18 @@ DATA = {
         },
         "documents": {
             "handbook.pdf": {"title": "HR Handbook", "categories": ["leave", "earned_leave"]},
-            "mixed.pdf": ["leave", "earned_leave"],
+            "other.pdf": ["leave", "earned_leave"],
         },
-        "mixed": ["mixed.pdf"],
     },
     "legal": {
         "categories": {
             "privacy": {"description": "Privacy law", "parents": []},
             "non_content": {"description": "Menus and reference lists", "parents": []},
         },
-        "documents": {"gdpr": {"title": "GDPR", "categories": ["privacy", "non_content"]}},
-        "mixed": ["gdpr"],
+        "documents": {"gdpr": {"title": "GDPR", "categories": ["privacy"]}, "menu.md": ["non_content"]},
     },
 }
-OVERRIDES = {
-    "hr-2": {"domain": "hr", "categories": ["earned_leave"]},
-    "legal-menu": {"domain": "legal", "categories": ["non_content"]},
-    "legal-text": {"domain": "legal", "categories": ["privacy"]},
-}
-TAX = parse_taxonomy(DATA, OVERRIDES)
+TAX = parse_taxonomy(DATA)
 
 
 class FakeIndex:
@@ -75,11 +68,11 @@ def make_index(**kwargs):
     return FakeIndex({
         "hr": {
             "hr-1": {"source": "/tmp/handbook.pdf", "text": "Earned leave is 24 days", "title": "Old PDF title"},
-            "hr-2": {"source": "/tmp/mixed.pdf", "text": "x"},
+            "hr-2": {"source": "/tmp/other.pdf", "text": "x"},
             "hr-3": {"source": "/tmp/brand_new.pdf", "text": "y"},
         },
         "legal": {
-            "legal-menu": {"source": "https://x.org/gdpr?sig=1", "text": "menu"},
+            "legal-menu": {"source": "https://x.org/menu.md?sig=1", "text": "menu"},
             "legal-text": {"source": "https://x.org/gdpr?sig=1", "text": "Privacy rules"},
         },
         "coding": {"c-1": {"source": "/tmp/other.py", "text": "print(1)"}},
@@ -103,9 +96,9 @@ def test_the_plan_computes_the_right_fields_for_each_kind_of_chunk():
 
     assert by_id["hr-1"] == {"categories": ["leave", "earned_leave"], "is_content": True,
                              "title": "HR Handbook", "original_title": "Old PDF title"}
-    assert by_id["hr-2"] == {"categories": ["earned_leave"], "is_content": True}         # chunk override, no title
+    assert by_id["hr-2"] == {"categories": ["leave", "earned_leave"], "is_content": True}   # a document with no title
     assert by_id["hr-3"] == {"categories": ["uncategorized"], "is_content": True}
-    assert by_id["legal-menu"] == {"categories": ["non_content"], "is_content": False, "title": "GDPR"}
+    assert by_id["legal-menu"] == {"categories": ["non_content"], "is_content": False}
     assert by_id["legal-text"]["categories"] == ["privacy"]
 
 
@@ -164,16 +157,19 @@ def test_namespaces_outside_the_taxonomy_are_listed_and_never_planned():
 
 
 def test_two_chunks_with_the_same_text_but_different_labels_are_reported():
-    taxonomy = parse_taxonomy(DATA, {**OVERRIDES, "hr-a": {"domain": "hr", "categories": ["leave"]},
-                                     "hr-b": {"domain": "hr", "categories": ["earned_leave"]}})
+    # same stored source and text, but uploaded under different file names, so the taxonomy labels them differently
+    taxonomy = parse_taxonomy({"hr": {
+        "categories": {"leave": {"description": "Leave", "parents": []}, "pay": {"description": "Pay", "parents": []}},
+        "documents": {"a.pdf": ["leave"], "b.pdf": ["pay"]},
+    }})
     index = FakeIndex({"hr": {
-        "hr-a": {"source": "/tmp/mixed.pdf", "text": "same text"},
-        "hr-b": {"source": "/tmp/mixed.pdf", "text": "same text"},
+        "hr-a": {"source": "/tmp/tmp1.pdf", "file_name": "a.pdf", "text": "same text"},
+        "hr-b": {"source": "/tmp/tmp1.pdf", "file_name": "b.pdf", "text": "same text"},
     }})
     _, targets, stats = backfill.plan_pinecone(index, taxonomy, ["hr"])
 
     assert stats["hr"]["same_text_two_labels"] == 1
-    assert targets[("hr", "/tmp/mixed.pdf", "same text")]["categories"] == ["leave"]     # the first one is kept
+    assert targets[("hr", "/tmp/tmp1.pdf", "same text")]["categories"] == ["leave"]     # the first one is kept
 
 
 # ---------------------------------------------------------------- BM25 side
@@ -181,7 +177,7 @@ def test_two_chunks_with_the_same_text_but_different_labels_are_reported():
 def hr_bm25_data():
     return {"Bm25": "BM25-OBJECT", "chunks": [
         {"text": "Earned leave is 24 days", "source": "/tmp/handbook.pdf"},     # twin of hr-1
-        {"text": "x", "source": "/tmp/mixed.pdf"},                             # twin of hr-2 (has a chunk-level label)
+        {"text": "x", "source": "/tmp/other.pdf"},                             # twin of hr-2
         {"text": "orphan text", "source": "/tmp/handbook.pdf"},                # no twin in Pinecone
         "plain old string",
     ]}
@@ -193,7 +189,7 @@ def test_bm25_chunks_are_matched_to_their_pinecone_twin_by_source_and_text():
     new_chunks, stats = backfill.plan_bm25(original, "hr", TAX, targets)
 
     assert new_chunks[0]["categories"] == ["leave", "earned_leave"] and new_chunks[0]["title"] == "HR Handbook"
-    assert new_chunks[1]["categories"] == ["earned_leave"]                    # the chunk-level label, not the document's
+    assert new_chunks[1]["categories"] == ["leave", "earned_leave"]           # found by source and text, like hr-2
     assert new_chunks[2]["categories"] == ["leave", "earned_leave"]           # no twin: the document's labels
     assert new_chunks[3] == "plain old string"
     assert stats == {"chunks": 4, "to_update": 3, "no_pinecone_twin": 1, "plain_string_left_alone": 1}
@@ -245,7 +241,7 @@ def test_bm25_apply_saves_the_labels_and_keeps_the_index_object():
     assert len(conn.saved) == 1
     namespace, data = conn.saved[0]
     assert namespace == "hr" and data["Bm25"] == "BM25-OBJECT"
-    assert data["chunks"][1]["categories"] == ["earned_leave"] and data["chunks"][3] == "plain old string"
+    assert data["chunks"][1]["categories"] == ["leave", "earned_leave"] and data["chunks"][3] == "plain old string"
 
 
 def test_bm25_second_run_saves_nothing():

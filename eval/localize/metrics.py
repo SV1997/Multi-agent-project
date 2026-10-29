@@ -10,9 +10,9 @@ says how many questions it was measured on.
 
 The metrics (a "result" is what the runner stored for one question: answer, sources, debug, error):
     wrong_category_citation   of the sources the answer cited whose categories are known, the share whose
-                              categories share nothing with the question's expected_categories. Sources in a
-                              document with mixed categories, or not in the taxonomy, cannot be judged and are
-                              counted separately ("unjudged"), not as right or wrong. Needs expected_categories.
+                              categories share nothing with the question's expected_categories. Sources not in
+                              the taxonomy cannot be judged and are counted separately ("unjudged"), not as
+                              right or wrong. Needs expected_categories.
     frame_accuracy            of the questions with an expected_frame, the share sorted into exactly that frame.
                               A question for which no frame was chosen counts as wrong. n/a at LOCALIZE=off,
                               where no frame is chosen on purpose.
@@ -40,9 +40,9 @@ def ratio(part: int, whole: int) -> dict:
 
 
 def source_categories(taxonomy, domain: str, source: str):
-    """Categories of a cited source's document, or None when they cannot be told (mixed document / not in the taxonomy)."""
+    """Categories of a cited source's document, or None when they cannot be told (not in the taxonomy)."""
     key = taxonomy.document_key(domain, source)
-    if key is None or taxonomy.is_mixed(domain, source):
+    if key is None:
         return None
     return set(taxonomy.documents[domain][key])
 

@@ -5,7 +5,7 @@ Run everything from the repository root unless a line says otherwise. Nothing he
 services by the assistant that wrote it; the "expect" column says what a healthy run should look like, so a
 difference is a signal to stop and look, not to carry on.
 
-Credentials: `scripts/backfill.py` and `scripts/handcheck.py` read `PINECONE_API_KEY`, `PINECONE_INDEX_NAME` (root
+Credentials: `scripts/backfill.py` reads `PINECONE_API_KEY`, `PINECONE_INDEX_NAME` (root
 `.env`) and `DATABASE_URL` (`services\ingestion_service\.env`). The paste-back lines say what to send me.
 
 ## 0. Once: rebuild the services that changed
@@ -50,23 +50,7 @@ uv run python scripts/backfill.py
 ```
 Expect: `to update   0` for every domain in both blocks (safe to repeat). Anything else: paste the output.
 
-## 3. Hand-check the labels, sampled per domain
-
-```powershell
-uv run python scripts/handcheck.py --stratify --out scripts/handcheck_stratified.csv
-```
-Expect: `wrote 50 chunks to scripts/handcheck_stratified.csv` (10 per domain; fewer for a domain with fewer labelled
-chunks, so the number is smaller if one is small). The `ok (y/n)` and `note` columns are empty: you fill them by reading
-each passage. (Without `--out` it would overwrite `handcheck_sheet.csv`, the first sheet.) `--stratify 15` gives 15 per
-domain; the sample is repeatable (seed 7).
-
-```powershell
-uv run python scripts/handcheck.py --score scripts/handcheck_stratified.csv
-```
-Expect: `X of Y correct = 0.zzz (K rows not filled in)` and one `wrong:` line per `n`. If `K` is not 0, finish the sheet.
-Paste the output; do not edit labels to improve the score without telling me why.
-
-## 4. Evaluation: all four levels
+## 3. Evaluation: all four levels
 
 Write `eval\localize\questions.jsonl` yourself (copy `questions.example.jsonl`, replace the rows; both `tune` and
 `heldout` rows are required or the runner refuses).
@@ -94,26 +78,7 @@ uv run python eval/localize/runner.py report --questions eval/localize/questions
 ```
 Expect: the same table rebuilt from the stored files (use it after fixing one level by running `run --level <x>` again).
 
-## 5. Smoke test through the gateway
-
-```powershell
-$env:GATEWAY_URL = "http://localhost:3000"
-$login = Invoke-RestMethod -Method Post -Uri "$env:GATEWAY_URL/auth/login" -ContentType "application/json" -Body (@{ email = "<your email>"; password = "<your password>" } | ConvertTo-Json)
-$env:GATEWAY_TOKEN = $login.accessToken
-uv run python scripts/smoke_localize.py --levels off filter prompt full --switch compose
-```
-Expect: a `===== LOCALIZE = <level> =====` block per level with three questions each; per question the frame,
-categories, `fallback_level`, whether a clarifying question was asked, and the cited chunks with their categories, then
-an `expected:` line. At `off` there is no frame; at `full` the ambiguous question should ask. `NOT as expected` means
-look at that one, not that the system is broken. `Cannot reach the gateway` means the stack is not up (exit code 2);
-`HTTP 429` means the gateway's rate limit (wait a minute, run fewer levels); `HTTP 401` means the token expired
-(log in again). To run one level against a stack you already started with `LOCALIZE=full`:
-
-```powershell
-uv run python scripts/smoke_localize.py --levels full
-```
-
-## 6. The test suites (any time)
+## 4. The test suites (any time)
 
 ```powershell
 cd shared;                       uv run python -m pytest taxonomy/tests ; cd ..
