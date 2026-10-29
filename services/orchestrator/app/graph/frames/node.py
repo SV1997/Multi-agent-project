@@ -11,7 +11,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 
-from shared.taxonomy.taxonomy import expand_with_descendants, load_taxonomy
+from shared.taxonomy.taxonomy import expand_with_descendants, load_taxonomy, parents_family
 from ...core import config
 from .prompts import scope_prompt
 from .registry import load_registry
@@ -63,25 +63,30 @@ def frame_query_node(state) -> dict:
     taxonomy = load_taxonomy()
     frames = load_registry(taxonomy).get(domain, [])
     frame = choose_frame(frames, domain, question) if frames and question else None
-    categories, scope = [], None
+    categories, wider, scope = [], [], None
     if frame is not None:
         categories = expand_with_descendants(taxonomy, domain, frame.categories)
+        wider = parents_family(taxonomy, domain, categories)          # level 1, tried only if level 0 finds nothing
         scope = scope_prompt(taxonomy, frame)
     logger.info("frame %s | categories %s | question %r", frame.frame_id if frame else None, categories, question[:100])
     return {
         "localize_frame_id": frame.frame_id if frame else None,
-        "localize_categories": categories or None,          # None = no filter
+        "localize_categories": categories or None,          # level 0; None = no filter
+        "localize_wider_categories": wider or None,         # level 1; level 2 is the whole domain
         "localize_scope": scope,
         "localize_fallback_used": None,
+        "localize_fallback_level": None,
     }
 
 
 def debug_payload(values: dict):
-    """Shows the frame decision next to the answer, so the demo can point at the frame, the categories and the fallback."""
+    """Shows the frame decision next to the answer, so the demo can point at the frame, the categories and how far the search had to widen."""
     if not values or not values.get("localize_frame_id"):
         return None
     return {
         "frame_id": values["localize_frame_id"],
         "categories": values.get("localize_categories"),
+        "wider_categories": values.get("localize_wider_categories"),
         "fallback_used": values.get("localize_fallback_used"),
+        "fallback_level": values.get("localize_fallback_level"),
     }

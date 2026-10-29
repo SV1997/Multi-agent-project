@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from shared.taxonomy.taxonomy import descendants, expand_with_descendants, load_taxonomy
+from shared.taxonomy.taxonomy import descendants, expand_with_descendants, load_taxonomy, parents_family
 
 TAX = load_taxonomy()
 LEAVE_CHILDREN = ["earned_leave", "casual_and_sick_leave", "family_leave", "comp_off_and_lwp"]
@@ -45,3 +45,29 @@ def test_naming_a_child_and_its_parent_gives_each_category_once():
 
 def test_a_domain_the_taxonomy_does_not_have_gives_nothing():
     assert expand_with_descendants(TAX, "sales", ["leave"]) == []
+
+
+# ---------- the step upwards: the parents' whole family (level 1 of the widening)
+
+def test_the_parents_family_of_a_leaf_is_its_parent_and_all_the_parents_children():
+    assert parents_family(TAX, "hr", ["earned_leave"]) == ["leave"] + LEAVE_CHILDREN
+
+
+def test_a_top_level_parent_has_no_wider_family_so_that_level_is_skipped():
+    assert parents_family(TAX, "hr", ["leave"]) == []
+    assert parents_family(TAX, "engineering", ["container_build_practices"]) == []
+
+
+def test_provident_fund_widens_through_both_of_its_parents():
+    family = parents_family(TAX, "hr", ["provident_fund_and_gratuity"])
+    assert {"payroll_and_tax", "salary_payment", "benefits_and_expenses", "medical_insurance"} <= set(family)
+    assert "leave" not in family                                    # unrelated branches stay out
+
+
+def test_several_categories_share_one_family_without_repeats():
+    family = parents_family(TAX, "hr", ["casual_and_sick_leave", "family_leave"])
+    assert family == ["leave"] + LEAVE_CHILDREN and len(family) == len(set(family))
+
+
+def test_a_misspelt_category_or_domain_has_no_wider_family():
+    assert parents_family(TAX, "hr", ["no_such_category"]) == [] and parents_family(TAX, "sales", ["leave"]) == []

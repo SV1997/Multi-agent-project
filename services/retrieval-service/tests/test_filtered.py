@@ -31,6 +31,7 @@ class FakeStore:
     calls: list = []
     results: list = []
     unfiltered = None          # what a search WITHOUT a filter returns; None means the same as `results`
+    sequence = None            # when set, the n-th search returns sequence[n] (the last one repeats)
 
     def __init__(self, **_):
         pass
@@ -38,7 +39,9 @@ class FakeStore:
     def similarity_search_with_score(self, *args, **kwargs):
         FakeStore.calls.append(kwargs)
         documents = FakeStore.results
-        if "filter" not in kwargs and FakeStore.unfiltered is not None:
+        if FakeStore.sequence is not None:
+            documents = FakeStore.sequence[min(len(FakeStore.calls) - 1, len(FakeStore.sequence) - 1)]
+        elif "filter" not in kwargs and FakeStore.unfiltered is not None:
             documents = FakeStore.unfiltered
         return [(doc, 0.0) for doc in documents[: kwargs["k"]]]
 
@@ -82,16 +85,17 @@ def search(monkeypatch):
 
     monkeypatch.setattr(ns, "load_bm25", fake_bm25)
 
-    def run(localize="off", categories=None, vector=(), top_k=10, namespace="hr", keyword_index=True, unfiltered=None):
+    def run(localize="off", categories=None, vector=(), top_k=10, namespace="hr", keyword_index=True, unfiltered=None, wider=None, sequence=None):
         monkeypatch.setattr(config, "LOCALIZE", localize)
         has_index["on"] = keyword_index
         FakeStore.calls = []
         FakeStore.results = list(vector)
         FakeStore.unfiltered = list(unfiltered) if unfiltered is not None else None
+        FakeStore.sequence = [list(step) for step in sequence] if sequence is not None else None
         # model_construct skips validation: the contract only allows the five domains, and "coding" is meant to
         # show what happens if a request for it ever got this far
         request = RetrievalQuery.model_construct(query="how many leave days", namespace=namespace, top_k=top_k,
-                                                 categories=categories)
+                                                 categories=categories, wider_categories=wider)
         response = asyncio.run(ns.query_namespace(request))
         run.response = response
         return {c.content: c for c in response.results}, FakeStore.calls[0]
@@ -164,7 +168,7 @@ def labelled(text):
     return Document(page_content=text, metadata={"source": "s.pdf", "categories": ["pay"], "is_content": True})
 
 
-def test_a_filtered_search_with_zero_results_triggers_exactly_one_unfiltered_search(search):
+def test_without_a_wider_level_a_search_with_zero_results_goes_straight_to_one_unfiltered_search(search):
     results, _ = search(localize="on", categories=["tax"], vector=[], unfiltered=[labelled("W")])
     assert len(FakeStore.calls) == 2
     assert "filter" in FakeStore.calls[0] and "filter" not in FakeStore.calls[1]      # the second search has no filter at all
@@ -189,6 +193,61 @@ def test_with_localize_off_an_empty_search_does_not_retry(search):
 def test_without_categories_there_is_nothing_to_fall_back_from(search):
     search(localize="on", categories=None, vector=[], keyword_index=False)
     assert len(FakeStore.calls) == 1 and search.response.fallback_used is False
+
+
+# ---------------------------------------------------------------- widening: own categories, parents' family, whole domain
+
+WIDER = ["leave", "earned_leave", "sick_leave"]
+
+
+def test_level_one_is_tried_when_the_frames_own_categories_find_nothing(search):
+    results, _ = search(localize="on", categories=["earned_leave"], wider=WIDER, sequence=[[], [labelled("W")]], keyword_index=False)
+    assert len(FakeStore.calls) == 2
+    assert FakeStore.calls[1]["filter"] == pinecone_filter(WIDER)                   # the second search is filtered to the family
+    assert "W" in results and search.response.fallback_level == 1 and search.response.fallback_used is True
+
+
+def test_level_two_is_the_whole_domain_with_no_filter(search):
+    search(localize="on", categories=["earned_leave"], wider=WIDER, sequence=[[], [], [labelled("W")]], keyword_index=False)
+    assert len(FakeStore.calls) == 3
+    assert "filter" in FakeStore.calls[0] and "filter" in FakeStore.calls[1] and "filter" not in FakeStore.calls[2]
+    assert search.response.fallback_level == 2
+
+
+def test_a_level_that_finds_something_stops_the_widening(search):
+    search(localize="on", categories=["earned_leave"], wider=WIDER, sequence=[[], [labelled("W")], [labelled("X")]], keyword_index=False)
+    assert len(FakeStore.calls) == 2 and search.response.fallback_level == 1
+
+
+def test_a_search_that_finds_something_at_level_zero_does_not_widen(search):
+    search(localize="on", categories=["earned_leave"], wider=WIDER, sequence=[[labelled("V")], [labelled("W")]], keyword_index=False)
+    assert len(FakeStore.calls) == 1 and search.response.fallback_level == 0 and search.response.fallback_used is False
+
+
+def test_every_level_is_tried_once_and_no_more_even_if_all_are_empty(search):
+    results, _ = search(localize="on", categories=["earned_leave"], wider=WIDER, sequence=[[]], keyword_index=False)
+    assert len(FakeStore.calls) == 3 and results == {} and search.response.fallback_level == 2
+
+
+def test_without_a_wider_level_level_one_is_skipped_but_the_whole_domain_is_still_level_two(search):
+    search(localize="on", categories=["leave"], wider=None, sequence=[[], [labelled("W")]], keyword_index=False)
+    assert len(FakeStore.calls) == 2 and "filter" not in FakeStore.calls[1] and search.response.fallback_level == 2
+
+
+def test_the_keyword_search_is_widened_to_the_family_too(search):
+    # nothing is labelled "tax", but the keyword chunks A and F are labelled "leave", which the wider level covers
+    results, _ = search(localize="on", categories=["tax"], wider=["leave"], sequence=[[]])
+    assert len(FakeStore.calls) == 2 and set(results) == {"A", "F"} and search.response.fallback_level == 1
+
+
+def test_with_localize_off_the_wider_categories_are_ignored(search):
+    search(localize="off", categories=["earned_leave"], wider=WIDER, sequence=[[]], keyword_index=False)
+    assert len(FakeStore.calls) == 1 and search.response.fallback_level == 0
+
+
+def test_the_request_contract_has_optional_wider_categories():
+    assert RetrievalQuery(query="q", namespace="hr").wider_categories is None
+    assert RetrievalQuery(query="q", namespace="hr", wider_categories=["leave"]).wider_categories == ["leave"]
 
 
 # ---------------------------------------------------------------- a domain without a keyword index (support)

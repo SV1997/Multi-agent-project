@@ -91,12 +91,19 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
     bm25_data = await load_bm25(req.namespace)
     chunks = search(vector_store, bm25_data, req, candidates, categories, localize)
 
-    # A wrong frame must cost one extra search, not an empty answer. Exactly one retry with no filter, then stop.
-    fallback_used = False
+    # A wrong frame must cost a wider search, not an empty answer. Widen one step at a time, each step once:
+    # level 1 = the parents' family (skipped if the request has none), level 2 = the whole domain with no filter.
+    fallback_level = 0
     if localize and categories and not chunks:
-        fallback_used = True
-        logger.info("Nothing found in categories %s of %s; searching the whole domain", categories, req.namespace)
-        chunks = search(vector_store, bm25_data, req, candidates, None, False)
+        steps = []
+        if req.wider_categories:
+            steps.append((1, req.wider_categories, True))
+        steps.append((2, None, False))
+        for fallback_level, wider, filtered in steps:
+            logger.info("Nothing found yet in %s; widening to level %d", req.namespace, fallback_level)
+            chunks = search(vector_store, bm25_data, req, candidates, wider, filtered)
+            if chunks:
+                break
     if cfg.RERANK_ENABLED:
         chunks = await asyncio.to_thread(rerank, req.query, chunks, req.top_k)
     else:
@@ -108,6 +115,7 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
         results=chunks,
         namespace= req.namespace,
         query_time_ms=round((time.time()-start)*1000,2),
-        fallback_used=fallback_used
+        fallback_used=fallback_level > 0,
+        fallback_level=fallback_level
     )
 

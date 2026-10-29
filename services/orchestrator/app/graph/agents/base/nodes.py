@@ -30,6 +30,8 @@ async def retrieve_context(state:AgentState)-> dict:
     categories = state.get("localize_categories")
     if categories:
         payload["categories"] = categories
+        if state.get("localize_wider_categories"):
+            payload["wider_categories"] = state["localize_wider_categories"]
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
@@ -45,8 +47,9 @@ async def retrieve_context(state:AgentState)-> dict:
         "retrieval_attempts": state.get("retrieval_attempts", 0) + 1,
     }
     if categories:
-        # the retrieval service says when the filtered search found nothing and it searched the whole domain instead
+        # the retrieval service says how far it had to widen: 0 = the frame's categories, 1 = the parents' family, 2 = the whole domain
         update["localize_fallback_used"] = bool(data.get("fallback_used"))
+        update["localize_fallback_level"] = data.get("fallback_level", 0)
     return update
 
 async def retrieve_sql_context(state:AgentState, function:str, extracted_data:dict)->dict:

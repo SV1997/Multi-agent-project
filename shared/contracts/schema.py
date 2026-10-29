@@ -17,6 +17,7 @@ class RetrievalQuery(BaseModel):
     namespace: Literal["legal", "hr", "engineering", "finance", "support"]
     top_k: int = 5
     categories: Optional[list[str]] = None  # restrict the search to chunks in these categories (only when LOCALIZE is on)
+    wider_categories: Optional[list[str]] = None  # level 1: tried if `categories` finds nothing (the parents' family)
 
 
 class RetrievedChunk(BaseModel):
@@ -30,7 +31,8 @@ class RetrievalResponse(BaseModel):
     results: list[RetrievedChunk]
     namespace: str
     query_time_ms: float
-    fallback_used: bool = False  # True when the category-filtered search found nothing and the whole domain was searched
+    fallback_used: bool = False  # True when the first, narrowest search found nothing and the search was widened
+    fallback_level: int = 0  # 0 = the request's categories, 1 = the wider categories, 2 = the whole domain
 
 class SQLRetrievalRequest(BaseModel):
     employee_email: str
