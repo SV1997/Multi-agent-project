@@ -1,5 +1,6 @@
-# DRAFT v1, built from the cleaned corpus inventory (25 Oct 2026). Documents are keyed by the file name the
-# chunks store as "source" (the stored doc_id is per chunk in this index, so it cannot be the key).
+# DRAFT v1, built from the cleaned corpus inventory (25 Oct 2026). Documents are keyed by the source file name:
+# the name a chunk's "source" ends with, or the name the file was uploaded under (not the doc id: the stored
+# doc_id is per chunk in this index, so it cannot identify a document).
 # HR is worked out in detail. The other domains are deliberately coarse: one or two files each.
 version: 1
 
@@ -83,7 +84,6 @@ hr:
     tmpueqswgxe.md:
       title: "HR Facilities and Ticket-Resolution Register"
       categories: [facilities_register]
-  mixed: [tmp5jdxnb7a.pdf, tmppcv6jeno.pdf]
 
 finance:
   categories:
@@ -131,7 +131,6 @@ finance:
     tmps8awxzxj.pdf:
       title: "Harvard Expense Reimbursement Policy FY2017"
       categories: [travel_expenses, expense_claims_and_receipts, non_reimbursable_expenses]
-  mixed: [tmpsah746ho.pdf, tmps8awxzxj.pdf]
 
 legal:
   categories:
@@ -165,7 +164,6 @@ legal:
       title: "Digital Personal Data Protection Act 2023 (Wikipedia)"
       categories: [scope_and_background, data_subject_rights, controller_and_processor_duties, cross_border_transfers,
                    enforcement_and_penalties, non_content]
-  mixed: [General_Data_Protection_Regulation, "Digital_Personal_Data_Protection_Act,_2023"]
 
 support:
   categories:
@@ -194,7 +192,6 @@ support:
     customer-support:
       title: "IBM: What is customer support"
       categories: [customer_support_practice, non_content]
-  mixed: [tmpk4v_ei9s.md, customer-support]
 
 engineering:
   categories:
@@ -208,4 +205,3 @@ engineering:
     best-practices:
       title: "Docker build best practices"
       categories: [container_build_practices, non_content]
-  mixed: [best-practices]

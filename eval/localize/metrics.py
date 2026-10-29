@@ -10,9 +10,9 @@ says how many questions it was measured on.
 
 The metrics (a "result" is what the runner stored for one question: answer, sources, debug, error):
     wrong_category_citation   of the sources the answer cited whose categories are known, the share whose
-                              categories share nothing with the question's expected_categories. Sources in a
-                              document with mixed categories, or not in the taxonomy, cannot be judged and are
-                              counted separately ("unjudged"), not as right or wrong. Needs expected_categories.
+                              categories share nothing with the question's expected_categories. Sources not in
+                              the taxonomy cannot be judged and are counted separately ("unjudged"), not as
+                              right or wrong. Needs expected_categories.
     frame_accuracy            of the questions with an expected_frame, the share sorted into exactly that frame.
                               A question for which no frame was chosen counts as wrong. n/a at LOCALIZE=off,
                               where no frame is chosen on purpose.
@@ -20,12 +20,18 @@ The metrics (a "result" is what the runner stored for one question: answer, sour
                               needs_clarification. Only the "full" level asks, so it is n/a below it.
     fallback_rate             of the questions that got a frame, the share whose evidence came from a widened
                               search (level 1 or 2) rather than the frame's own categories.
+    fallback_levels           of the questions that got a frame, the share answered at each widening level (0, 1, 2,
+                              or "unrecorded" when the answer carries no level).
+    failed                    questions whose request failed (timeout, error, paused for review), counted per split.
+                              They are left out of the metrics above, so read every rate together with this count:
+                              a level that fails often can look better than it is.
     gap                       tune value minus heldout value for each metric above: a large gap means the frames
                               and prompts were fitted to the tuning questions.
 A result with an error (the request failed) is left out of every metric and counted under "errors".
 """
 from collections import defaultdict
 
+FALLBACK_LEVELS = (0, 1, 2)          # see frames/widen.py: 0 = the frame's own categories, 1 = parents' family, 2 = whole domain
 METRICS = ("wrong_category_citation", "frame_accuracy", "clarification_correct", "fallback_rate")
 
 
@@ -34,9 +40,9 @@ def ratio(part: int, whole: int) -> dict:
 
 
 def source_categories(taxonomy, domain: str, source: str):
-    """Categories of a cited source's document, or None when they cannot be told (mixed document / not in the taxonomy)."""
+    """Categories of a cited source's document, or None when they cannot be told (not in the taxonomy)."""
     key = taxonomy.document_key(domain, source)
-    if key is None or taxonomy.is_mixed(domain, source):
+    if key is None:
         return None
     return set(taxonomy.documents[domain][key])
 
@@ -81,30 +87,43 @@ def fallback_rate(pairs) -> dict:
     return ratio(widened, len(framed))
 
 
+def fallback_levels(pairs) -> dict:
+    framed = [result["debug"] for _, result in pairs if (result.get("debug") or {}).get("frame_id")]
+    levels = [debug.get("fallback_level") for debug in framed]
+    shares = {str(level): ratio(sum(1 for x in levels if x == level), len(framed)) for level in FALLBACK_LEVELS}
+    shares["unrecorded"] = ratio(sum(1 for x in levels if x not in FALLBACK_LEVELS), len(framed))
+    return shares
+
+
 def compute(rows: list[dict], results: dict, taxonomy, level: str) -> dict:
     """All metrics for one level, over everything and then per split, plus the tune - heldout gap."""
     pairs, errors = [], 0
+    failed_by_split = defaultdict(int)
     for row in rows:
         result = results.get(row["id"])
         if result is None or result.get("error"):
             errors += 1
+            failed_by_split[row["split"]] += 1
         else:
             pairs.append((row, result))
 
-    def metrics_for(subset) -> dict:
+    def metrics_for(subset, failed) -> dict:
         return {
             "questions": len(subset),
+            "failed": failed,
             "wrong_category_citation": wrong_category_citation(subset, taxonomy),
             "frame_accuracy": frame_accuracy(subset, level),
             "clarification_correct": clarification_correct(subset, level),
             "fallback_rate": fallback_rate(subset),
+            "fallback_levels": fallback_levels(subset),
         }
 
     by_split = defaultdict(list)
     for pair in pairs:
         by_split[pair[0]["split"]].append(pair)
-    report = {"level": level, "errors": errors, "all": metrics_for(pairs),
-              "tune": metrics_for(by_split["tune"]), "heldout": metrics_for(by_split["heldout"]), "gap": {}}
+    report = {"level": level, "errors": errors, "all": metrics_for(pairs, errors),
+              "tune": metrics_for(by_split["tune"], failed_by_split["tune"]),
+              "heldout": metrics_for(by_split["heldout"], failed_by_split["heldout"]), "gap": {}}
     for name in METRICS:
         tune, heldout = report["tune"][name]["value"], report["heldout"][name]["value"]
         report["gap"][name] = None if tune is None or heldout is None else tune - heldout

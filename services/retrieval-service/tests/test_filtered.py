@@ -70,16 +70,23 @@ def search(monkeypatch):
     monkeypatch.setattr(ns, "PineconeVectorStore", FakeStore)
     monkeypatch.setattr(config, "RERANK_ENABLED", False)
 
+    has_index = {"on": True}
+
     async def fake_bm25(_namespace):
-        return {"Bm25": FakeBm25(BM25_SCORES), "chunks": BM25_CHUNKS}
+        # a namespace with no stored keyword index gives None, as the real load_bm25 does
+        return {"Bm25": FakeBm25(BM25_SCORES), "chunks": BM25_CHUNKS} if has_index["on"] else None
 
     monkeypatch.setattr(ns, "load_bm25", fake_bm25)
 
-    def run(localize="off", categories=None, vector=(), top_k=10):
+    def run(localize="off", categories=None, vector=(), top_k=10, namespace="hr", keyword_index=True):
         monkeypatch.setattr(config, "LOCALIZE", localize)
+        has_index["on"] = keyword_index
         FakeStore.calls = []
         FakeStore.results = list(vector)
-        request = RetrievalQuery(query="how many leave days", namespace="hr", top_k=top_k, categories=categories)
+        # model_construct skips validation: the contract only allows the five domains, and "coding" is meant to
+        # show what happens if a request for it ever got this far
+        request = RetrievalQuery.model_construct(query="how many leave days", namespace=namespace, top_k=top_k,
+                                                 categories=categories)
         response = asyncio.run(ns.query_namespace(request))
         return {c.content: c for c in response.results}, FakeStore.calls[0]
 
@@ -144,6 +151,60 @@ def test_a_text_found_by_both_searches_adds_both_ranks(search):
     results, _ = search(localize="filter", categories=["leave"], vector=[both])
     assert results["A"].score == pytest.approx(1 / 61 + 1 / 61)          # vector rank 1 and keyword rank 1
     assert results["A"].metadata["categories"] == ["leave"]               # the vector search's own metadata is kept
+
+
+# ---------------------------------------------------------------- a domain without a keyword index (support)
+
+@pytest.mark.parametrize("level", ["off", "filter", "prompt", "full"])
+def test_a_missing_keyword_index_falls_back_to_vector_only_at_every_level(search, level):
+    found = Document(page_content="V", metadata={"source": "s.pdf", "categories": ["leave"], "is_content": True})
+    results, vector_call = search(level, categories=["leave"], vector=[found], namespace="support", keyword_index=False)
+
+    assert set(results) == {"V"}                                     # vector hit only, and no crash
+    assert results["V"].score == pytest.approx(1 / 61)               # one rank, no keyword rank added
+    assert ("filter" in vector_call) == (level != "off")             # the vector search is still localized
+
+
+def test_the_real_loader_returns_none_when_the_namespace_has_no_row(monkeypatch):
+    from app.storage import bm25score
+
+    class NoRowConn:
+        async def fetchrow(self, query, namespace):
+            return None
+
+        async def close(self):
+            pass
+
+    async def connect():
+        return NoRowConn()
+
+    monkeypatch.setattr(bm25score, "get_connection", connect)
+    assert asyncio.run(bm25score.load_bm25("support")) is None
+
+
+# ---------------------------------------------------------------- a namespace outside the taxonomy (coding)
+
+def test_the_request_contract_does_not_accept_the_coding_namespace():
+    with pytest.raises(ValueError):
+        RetrievalQuery(query="q", namespace="coding")
+
+
+def test_a_namespace_outside_the_taxonomy_is_searched_exactly_as_with_localize_off(search):
+    found = Document(page_content="code", metadata={"source": "x.py"})        # coding chunks carry no labels
+    off_results, off_call = search("off", categories=["leave"], vector=[found], namespace="coding")
+    full_results, full_call = search("full", categories=["leave"], vector=[found], namespace="coding")
+
+    assert set(full_call) == {"query", "k"} == set(off_call)                  # no filter argument at all
+    assert set(full_results) == set(off_results)                              # the unlabeled keyword chunks are kept too
+    assert {c.score for c in full_results.values()} == {c.score for c in off_results.values()}
+    assert "code" in full_results and "C" in full_results                     # unlabeled chunks are not hidden
+    assert full_results["C"].metadata == {"source": "s.pdf"}                  # and show no labels, as with off
+
+
+def test_the_localized_namespaces_match_the_taxonomy_domains():
+    from shared.taxonomy.taxonomy import DOMAINS
+    from app.pinecone.filters import LOCALIZED_NAMESPACES
+    assert set(LOCALIZED_NAMESPACES) == set(DOMAINS)
 
 
 # ---------------------------------------------------------------- the pure functions

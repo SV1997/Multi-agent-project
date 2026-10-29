@@ -14,13 +14,13 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class Frame:
-    frame_id: str                                   # "<domain>.<name>", for example "hr.notice_period"
+    frame_id: str                                   
     domain: str
-    description: str                                # shown to the model in the menu, so write it for the model
-    categories: tuple[str, ...]                     # taxonomy categories to search; empty = the whole domain
-    required_slots: dict[str, str] = field(default_factory=dict)   # slot name -> question to ask if it is missing
-    optional_slots: tuple[str, ...] = ()            # slots that sharpen the answer but never block it
-    origin: str = "auto"                            # "hand" (frames.yaml), "auto" (one per leaf category), "other"
+    description: str                               
+    categories: tuple[str, ...]                     
+    required_slots: dict[str, str] = field(default_factory=dict)   
+    optional_slots: tuple[str, ...] = ()           
+    origin: str = "auto"                           
 
     @property
     def slot_names(self) -> tuple[str, ...]:

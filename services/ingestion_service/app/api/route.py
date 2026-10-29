@@ -65,7 +65,7 @@ async def ingest(req:IngestionRequest):
                 if doc.page_content not in seen_texts:
                     seen_texts.add(doc.page_content)
                     new_chunks.append({"text":doc.page_content, "source":doc.metadata.get("source",""), "doc_id":doc_id,
-                                       **bm25_tags(doc.metadata, taxonomy, req.namespace, doc_id)})
+                                       **bm25_tags(doc.metadata, taxonomy, req.namespace)})
 
         if empty_sources == len(req.source):
             names = ", ".join(display_name(s.path) for s in req.source)
@@ -114,14 +114,14 @@ def load_taxonomy_or_warn(warnings: list[str]):
 
 BM25_TAG_FIELDS = ("categories", "is_content", "file_name")
 
-def bm25_tags(metadata: dict, taxonomy, namespace: str, doc_id: str) -> dict:
+def bm25_tags(metadata: dict, taxonomy, namespace: str) -> dict:
     """The labels a chunk's keyword-index entry carries, taken from the metadata stored in Pinecone, so a
     filtered keyword search sees the same categories as a filtered vector search. The title is the
     taxonomy's (not the loader's), exactly what scripts/backfill.py would write, so a backfill run
     after ingestion has nothing left to change."""
     tags = {key: metadata[key] for key in BM25_TAG_FIELDS if key in metadata}
     if taxonomy is not None:
-        title = taxonomy.title_for(namespace, str(metadata.get("source", "")), f"{doc_id}#", metadata.get("file_name"))
+        title = taxonomy.title_for(namespace, str(metadata.get("source", "")), metadata.get("file_name"))
         if title:
             tags["title"] = title
     return tags

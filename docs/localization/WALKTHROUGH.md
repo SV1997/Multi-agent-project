@@ -15,7 +15,7 @@ someone who did not build it can follow it, and so that you can explain it in a 
 
 | Examiner's note | What was built |
 |---|---|
-| Categorize the policies | A taxonomy: every policy document (and, for mixed documents, every chunk) has one or more categories. Every stored chunk carries them. |
+| Categorize the policies | A taxonomy: every policy document has one or more categories, and every chunk takes its document's categories. Every stored chunk carries them. |
 | Use the categories to create prompts | Short instructions per category, put into the answering prompt for the category the question belongs to. |
 | A Frame / DAG for queries, to localize the search | Each question is sorted into a *frame* (a kind of question) that names the categories to search. A small graph (DAG) records the decision for each question. If nothing useful is found, the search widens step by step. |
 
@@ -81,12 +81,10 @@ menu with numbers can be checked by code, and a wrong answer simply falls back t
 |---|---|
 | `shared/taxonomy/policy_taxonomy.yaml` | The taxonomy itself: categories per domain, parents (making it a DAG), and which document belongs to which categories. |
 | `shared/taxonomy/taxonomy.py` | Loads and checks the taxonomy; answers "which categories does this chunk have?". |
-| `shared/taxonomy/chunk_overrides.json` | Per-chunk labels for documents that mix topics, where one label for the whole file would be wrong. |
-| `shared/taxonomy/chunk_ceator.py` | Helper used when producing chunk labels. |
+| `shared/taxonomy/chunk_ceator.py` | Lists every chunk stored in Pinecone (used by `backfill.py`) and can write the document inventory. |
 | `shared/taxonomy/tagging.py` | Turns a chunk's source into the metadata fields stored with it (`categories`, `is_content`, `title`). |
 | `shared/taxonomy/taxonomy_inventory.md` | Human-readable inventory of the documents, used while writing the taxonomy. |
 | `shared/contracts/schema.py` | New optional fields: `SourceItem.file_name`, `RetrievalQuery.categories`, `AgentAnswer.debug`. Optional, so old callers still work. |
-| `scripts/lable_chunks.py`, `scripts/resolve.py`, `scripts/handcheck.py` | Producing chunk labels and the sheet used to check them by hand. The sheet is filled by the author, never by the assistant. |
 | `scripts/backfill.py` | Adds the labels to chunks already stored in Pinecone and in the BM25 indexes. |
 | `check_taxonomy.py` | Quick consistency check of the taxonomy file. |
 | `services/ingestion_service/app/pinecone/upsert.py`, `app/api/route.py` | New uploads are tagged at ingestion, using the uploaded file name (the stored name is a temporary one). |
@@ -129,6 +127,8 @@ menu with numbers can be checked by code, and a wrong answer simply falls back t
   prompts has not been measured.
 
 ## 6. Running things (Windows, PowerShell, uv)
+
+The ordered, step-by-step version with expected output is in [RUNBOOK.md](RUNBOOK.md).
 
 From the repository root unless stated.
 

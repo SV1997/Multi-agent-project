@@ -11,3 +11,4 @@ wheels/
 .env
 # Localization evaluation runs (one file per LOCALIZE level)
 eval/localize/results/
+eval/localize/results_dryrun/

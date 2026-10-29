@@ -15,6 +15,10 @@ way Pinecone treats a missing field - so a chunk ingested without labels is only
 
 CHUNK_TAG_FIELDS = ("categories", "is_content", "title", "file_name")
 
+# The namespaces the taxonomy covers (shared/taxonomy DOMAINS; a test keeps the two lists equal). Chunks in any
+# other namespace (for example "coding") carry no labels, so a filter there would return nothing at all.
+LOCALIZED_NAMESPACES = ("legal", "hr", "engineering", "finance", "support")
+
 
 def pinecone_filter(categories: list[str] | None) -> dict:
     """Pinecone metadata filter: content chunks only, and in one of `categories` when any are given.

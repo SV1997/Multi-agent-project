@@ -91,6 +91,23 @@ def test_no_message_or_unknown_domain_means_no_frame_and_no_model_call():
     assert chooser.calls == []
 
 
+def test_the_coding_namespace_gets_no_frame_filter_prompt_or_trace_even_at_the_full_level():
+    """coding is outside the taxonomy: with LOCALIZE=full it must behave exactly like LOCALIZE=off."""
+    from app.graph.frames.dag import make_trace_node, debug_payload
+
+    chooser = FakeChooser(choice(0))
+    node = make_frame_query_node(REGISTRY, [("c", chooser)], level=lambda: "full", taxonomy=TAX,
+                                 prompts={"leave": "text"})
+    state = {"domain": "coding", "messages": [HumanMessage(content="how do I reverse a list in python?")]}
+    update = asyncio.run(node(state))
+
+    assert update == NO_FRAME                                  # no frame, no categories, no plan, no prompt text
+    assert chooser.calls == [] and dict(FRAME_STATS) == {}     # the model is not even asked
+    assert route_after_frame({**state, **update}) == "coding"  # straight on to the domain's agent
+    traced = make_trace_node(TAX, level=lambda: "full")({**state, **update, "retrieved_context": []})
+    assert debug_payload({**update, **traced}) is None         # nothing extra in the response
+
+
 def test_every_run_returns_all_the_frame_fields_so_nothing_leaks_between_turns():
     update, _ = run_node([FakeChooser(choice(2))], state_of(HumanMessage(content="earned leave rules")))
     assert set(update) == set(NO_FRAME)

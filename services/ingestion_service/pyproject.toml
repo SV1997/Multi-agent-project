@@ -18,3 +18,8 @@ dependencies = [
     "unstructured>=0.23.1",
     "uvicorn>=0.50.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pillow>=12.3.0",  # tests/test_parse_quality.py draws an image-only PDF
+]

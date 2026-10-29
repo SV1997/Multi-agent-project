@@ -25,9 +25,7 @@ TAX = parse_taxonomy({"hr": {
         "sick_leave": {"description": "Sick leave", "parents": ["leave"]},
         "payroll": {"description": "Pay", "parents": []},
     },
-    "documents": {"earned.pdf": ["earned_leave"], "sick.pdf": ["sick_leave"], "pay.pdf": ["payroll"],
-                  "mix.pdf": ["earned_leave", "payroll"]},
-    "mixed": ["mix.pdf"],
+    "documents": {"earned.pdf": ["earned_leave"], "sick.pdf": ["sick_leave"], "pay.pdf": ["payroll"]},
 }})
 
 
@@ -104,7 +102,7 @@ RESULTS = {
 
 
 def test_wrong_category_citation_counts_distinct_judgeable_sources_only():
-    # r1: earned.pdf right, pay.pdf wrong, mix.pdf unjudged.  r2: sick.pdf once (duplicate ignored), right.
+    # r1: earned.pdf right, pay.pdf wrong, mix.pdf unjudged (not in the taxonomy).  r2: sick.pdf once (duplicate ignored), right.
     # r3 has no expected categories, so pay.pdf is not counted.  Wrong 1 of 3 judged.
     result = metrics.compute(ROWS, RESULTS, TAX, "full")["all"]["wrong_category_citation"]
     assert (result["count"], result["n"], result["unjudged"]) == (1, 3, 1) and result["value"] == pytest.approx(1 / 3)
