@@ -11,3 +11,6 @@ wheels/
 .env
 # Localization evaluation runs (one file per LOCALIZE setting)
 eval/results/
+
+# One-off test run outputs (scripts/run_all_tests.py, locust, smoke)
+test-results/

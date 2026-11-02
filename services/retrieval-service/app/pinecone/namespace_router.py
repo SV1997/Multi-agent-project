@@ -75,7 +75,6 @@ def search(vector_store, bm25_data, req: RetrievalQuery, candidates: int, catego
 
 async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
     start = time.time()
-    # With re-ranking on, fuse a wider candidate pool, then let the cross-encoder pick top_k.
     candidates = max(cfg.RERANK_CANDIDATES, req.top_k) if cfg.RERANK_ENABLED else req.top_k
 
     vector_store = PineconeVectorStore(
@@ -84,15 +83,11 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
         namespace=req.namespace
     )
 
-    # With LOCALIZE off the search is exactly what it always was (no filter is even passed). The same holds for a
-    # namespace outside the taxonomy (coding): its chunks have no labels, so any filter would hide all of them.
     localize = cfg.LOCALIZE != "off" and req.namespace in LOCALIZED_NAMESPACES
     categories = req.categories if localize else None
     bm25_data = await load_bm25(req.namespace)
     chunks = search(vector_store, bm25_data, req, candidates, categories, localize)
 
-    # A wrong frame must cost a wider search, not an empty answer. Widen one step at a time, each step once:
-    # level 1 = the parents' family (skipped if the request has none), level 2 = the whole domain with no filter.
     fallback_level = 0
     if localize and categories and not chunks:
         steps = []
