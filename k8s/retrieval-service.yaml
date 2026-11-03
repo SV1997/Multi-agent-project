@@ -16,7 +16,7 @@ spec:
         - name: ecr-secret
       containers:
         - name: retrieval-service
-          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/retrieval-service:e749f722075c05d176b5c3ae02bda56e96a7e505
+          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/retrieval-service:1f76bb44d6fb83b230275afb23ccf67c2cfd368d
           ports:
             - containerPort: 8001
           envFrom:
