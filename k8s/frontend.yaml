@@ -17,6 +17,9 @@ spec:
       containers:
         - name: frontend
           image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/frontend:e3ff609f75873b3657395aa3a87bf0c2a94be1b8
+          env:
+            - name: API_GATEWAY_HOST
+              value: api-gateway.default.svc.cluster.local
           ports:
             - containerPort: 80
 ---
