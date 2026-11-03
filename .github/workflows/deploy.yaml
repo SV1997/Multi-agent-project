@@ -71,10 +71,10 @@ jobs:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           docker build -t $REGISTRY/frontend:latest \
-            --build-arg VITE_BASE_URL=https://multiagentragsystem.online/api \
+            --build-arg VITE_BASE_URL=https://multiagentragsystem.health/api \
             ./frontend
           docker build -t $REGISTRY/frontend:${{ github.sha }} \
-            --build-arg VITE_BASE_URL=https://multiagentragsystem.online/api \
+            --build-arg VITE_BASE_URL=https://multiagentragsystem.health/api \
             ./frontend
           docker push $REGISTRY/frontend:latest
           docker push $REGISTRY/frontend:${{ github.sha }}
