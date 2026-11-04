@@ -4,6 +4,7 @@ from langgraph.prebuilt import ToolNode
 from langchain.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from pydantic import BaseModel, Field
 from .nodes import retrieve_context, build_context_prompt
+from .rewrite_prompt import rewrite_messages
 import sys
 import os
 import logging
@@ -179,6 +180,8 @@ STEP 2 - OTHERWISE CHOOSE A SOURCE.
             "max_retrieval_attempts": 3,
             "retrieval_quality": None,
             "retrieval_assessment": None,
+            "retrieval_missing": None,
+            "tried_queries": [query],
             "retrieval_can_use_tool": False,
         }
 
@@ -198,7 +201,10 @@ STEP 2 - OTHERWISE CHOOSE A SOURCE.
                 "when the passages contain factual support for answering the user's actual "
                 "question. Do not treat a merely related topic as sufficient evidence. "
                 "Set can_be_answered_by_tool to true only if a listed live tool directly "
-                "performs the action requested by the user; otherwise set it to false."
+                "performs the action requested by the user; otherwise set it to false. "
+                "When the evidence is not enough, say in missing_information exactly what the question "
+                "needs that the passages do not contain (and what they cover instead); if it is enough, "
+                "leave missing_information empty."
             )),
             HumanMessage(content=(
                 f"Original question: {state.get('original_query', '')}\n"
@@ -210,23 +216,15 @@ STEP 2 - OTHERWISE CHOOSE A SOURCE.
         return {
             "retrieval_quality": "relevant" if assessment.relevant else "insufficient",
             "retrieval_assessment": assessment.reason,
+            "retrieval_missing": assessment.missing_information,
             "retrieval_can_use_tool": assessment.can_be_answered_by_tool,
         }
 
     async def rewrite_query(state: AgentState) -> dict:
         retrieval_attempts = state.get("retrieval_attempts",0)+1
-        rewritten = await query_rewriter.ainvoke([
-            SystemMessage(content=(
-                "Rewrite the user's question for vector retrieval. Preserve all named entities, "
-                "employee IDs, dates, and constraints. Return only a search query; do not answer."
-            )),
-            HumanMessage(content=(
-                f"Original question: {state.get('original_query', '')}\n"
-                f"Previous search query: {state.get('search_query', '')}\n"
-                f"Why it was insufficient: {state.get('retrieval_assessment', '')}"
-            )),
-        ])
-        return {"search_query": rewritten.search_query, "retrieval_attempts":retrieval_attempts}
+        rewritten = await query_rewriter.ainvoke(rewrite_messages(state, conversation_so_far(state)))
+        return {"search_query": rewritten.search_query, "retrieval_attempts": retrieval_attempts,
+                "tried_queries": (state.get("tried_queries") or []) + [rewritten.search_query]}
 
     def route_after_sql(state: AgentState) -> str:
         # SQL retrieval is deterministic - the only "insufficient" case is an
