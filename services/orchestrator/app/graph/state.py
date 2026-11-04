@@ -20,6 +20,8 @@ class AgentState(TypedDict):
     max_retrieval_attempts: int
     retrieval_quality: str | None
     retrieval_assessment: str | None
+    retrieval_missing: str | None       # what the grader says the passages lack; given to the query rewriter
+    tried_queries: list[str]            # every search query used this turn, so a rewrite does not repeat one
     retrieval_can_use_tool: bool
     retrieval_source: str| None
     retrieval_plan_reason: str | None

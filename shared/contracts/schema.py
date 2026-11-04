@@ -95,6 +95,10 @@ class RetrievalPlan(BaseModel):
 class RetrievalAssessment(BaseModel):
     relevant: bool = Field(description="Whether the retrieved text contains enough evidence to answer the user's question.")
     reason: str = Field(description="Brief explanation of the evidence quality.")
+    missing_information: str = Field(
+        description="What the question needs that the passages do not contain, e.g. 'the number of casual leave days; "
+                    "the passages only describe how to apply for leave'. Empty string when the evidence is enough."
+    )
     can_be_answered_by_tool: bool = Field(
         description="Whether one of the supplied live tools directly supports the user's request."
     )
