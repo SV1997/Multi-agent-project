@@ -43,7 +43,7 @@ def render(message)->str:
               if isinstance(m,HumanMessage):
                      lines.append(f"User: {m.content}")
               elif isinstance(m,AIMessage) and m.content and not getattr(m,"tool_calls",None):
-                    lines.append(f"Assisstant: {m.content}") 
+                    lines.append(f"Assistant: {m.content}")
        return "\n".join(lines)
 
 import re
