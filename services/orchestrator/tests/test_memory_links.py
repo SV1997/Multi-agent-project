@@ -54,38 +54,57 @@ def test_ids_compare_as_text_so_uuid_objects_and_strings_mix():
     assert current_memories([old, new]) == [new]
 
 
-# b) with_linked
+# b) with_linked: pulls in memories connected by a link, in both directions
 
 def fetcher(*stored):
+    """Fake database: rows whose id is wanted, or that link to one of the recalled ids."""
     calls = []
 
-    async def fetch(ids):
-        calls.append(list(ids))
-        return [dict(r) for r in stored if r["id"] in ids]
+    async def fetch(ids, recalled):
+        calls.append((list(ids), list(recalled)))
+        return [dict(r) for r in stored if r["id"] in ids or set(r["linked_ids"]) & set(recalled)]
     fetch.calls = calls
     return fetch
 
 
 def test_the_older_memory_a_recalled_one_links_to_is_added():
-    fetch = fetcher(OLD)
-    out = asyncio.run(with_linked(fetch, [FIX, LEAVE]))
+    out = asyncio.run(with_linked(fetcher(OLD), [FIX, LEAVE]))
     assert [r["id"] for r in out] == ["b", "c", "a"]
-    assert fetch.calls == [["a"]]
 
 
-def test_nothing_is_fetched_when_every_linked_memory_was_already_recalled():
+def test_a_newer_correction_that_was_not_recalled_is_added_so_the_old_one_is_hidden():
+    out = asyncio.run(with_linked(fetcher(OLD, FIX), [OLD]))          # only the stale memory was recalled
+    assert [r["id"] for r in out] == ["a", "b"]
+    assert current_memories(out) == [FIX]
+
+
+def test_a_chain_of_corrections_is_followed():
+    third = row("d", "User corrected the medical claim amount from 12,500 to 13,000", 4, ["b"])
+    out = asyncio.run(with_linked(fetcher(OLD, FIX, third), [OLD]))
+    assert [r["id"] for r in out] == ["a", "b", "d"]
+    assert current_memories(out) == [third]
+
+
+def test_nothing_is_added_when_the_recalled_memories_have_no_links_either_way():
+    assert asyncio.run(with_linked(fetcher(OLD, FIX), [LEAVE])) == [LEAVE]
+
+
+def test_a_memory_is_never_added_twice():
+    out = asyncio.run(with_linked(fetcher(OLD, FIX), [OLD, FIX]))
+    assert [r["id"] for r in out] == ["a", "b"]
+
+
+def test_no_recalled_rows_means_no_database_call():
     fetch = fetcher(OLD)
-    out = asyncio.run(with_linked(fetch, [OLD, FIX]))
-    assert out == [OLD, FIX] and fetch.calls == []
+    assert asyncio.run(with_linked(fetch, [])) == [] and fetch.calls == []
 
 
-def test_nothing_is_fetched_when_there_are_no_links():
-    fetch = fetcher(OLD)
-    assert asyncio.run(with_linked(fetch, [LEAVE])) == [LEAVE] and fetch.calls == []
+def test_the_lookup_stops_after_a_few_rounds_even_if_the_database_keeps_returning_new_rows():
+    counter = iter(range(100))
 
-
-def test_a_target_the_database_no_longer_has_is_just_not_added():
-    assert asyncio.run(with_linked(fetcher(), [FIX])) == [FIX]
+    async def endless(ids, recalled):
+        return [row(f"x{next(counter)}", "chain", 1)]
+    assert len(asyncio.run(with_linked(endless, [OLD]))) == 1 + 3
 
 
 # c) valid_links

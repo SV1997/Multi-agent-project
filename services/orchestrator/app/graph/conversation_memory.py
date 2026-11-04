@@ -97,16 +97,23 @@ def current_memories(rows: list[dict]) -> list[dict]:
                 if str(target) in created and r["created_at"] > created[str(target)]}
     return [r for r in rows if str(r["id"]) not in replaced]
 
-async def with_linked(fetch, rows: list[dict]) -> list[dict]:
-    """Add the older memories that the given rows link to but that were not recalled.
+async def with_linked(fetch, rows: list[dict], max_rounds: int = 3) -> list[dict]:
+    """Add the memories connected to these rows by a link, in both directions: the older ones they correct,
+    and the newer ones that correct them (so a stale memory is not shown as current just because its
+    correction scored lower). A correction can itself be corrected, so this repeats, at most max_rounds times.
 
-    fetch(ids) is an async function returning the stored rows for those ids; nothing is fetched if none are missing.
+    fetch(ids, recalled) is an async function returning the stored rows whose id is in ids or that link to
+    one of the recalled ids.
     """
-    have = {str(r["id"]) for r in rows}
-    missing = sorted({str(t) for r in rows for t in r.get("linked_ids") or []} - have)
-    if not missing:
-        return rows
-    return rows + [dict(r) for r in await fetch(missing)]
+    rows = list(rows)
+    for _ in range(max_rounds if rows else 0):
+        have = {str(r["id"]) for r in rows}
+        linked_to = sorted({str(t) for r in rows for t in r.get("linked_ids") or []} - have)
+        found = [dict(r) for r in await fetch(linked_to, sorted(have)) if str(r["id"]) not in have]
+        if not found:
+            break
+        rows += found
+    return rows
 
 def valid_links(existing: list[dict], linked_ids: list, new_created_at) -> tuple[list[str], list[str]]:
     """Split linked_ids into (valid, dropped). A link is valid only if it points at an existing memory that is
@@ -144,12 +151,12 @@ async def insert_memory(db, user_id, run_id, text, vec, linked_ids, turn_id) -> 
 """, uuid.uuid4(), user_id, run_id, text,memory_hash(text),to_vector_literal(vec), linked_ids,turn_id)
     return  status.endswith(" 1")
 
-async def memories_by_id(db, user_id, run_id, ids: list[str]) -> list[dict]:
-    """The stored memories with these ids, for this user and run only."""
+async def linked_memories(db, user_id, run_id, ids: list[str], recalled: list[str]) -> list[dict]:
+    """Stored memories with one of these ids, or that link to one of the recalled ids. This user and run only."""
     rows = await db.fetch(
         """SELECT id, text, created_at, linked_ids FROM memory.conversation_memories
-           WHERE user_id = $1 AND run_id = $2 AND id = ANY($3::uuid[])""",
-        user_id, run_id, ids)
+           WHERE user_id = $1 AND run_id = $2 AND (id = ANY($3::uuid[]) OR linked_ids && $4::uuid[])""",
+        user_id, run_id, ids, recalled)
     return [dict(r) for r in rows]
 
 async def all_memories(db, user_id, run_id) -> list[dict]:
@@ -346,8 +353,9 @@ async def search_memories(user_id: str, run_id: str, query: str,
             r["score"] = (r["semantic"] + r["keyword_norm"]) / 2 if kmax > 0 else r["semantic"]
 
         top = sorted(rows, key=lambda r: r["score"], reverse=True)[:top_k]
-        # Pull in the older memories the top ones correct (same connection), so we can show what changed.
-        everything = await with_linked(lambda ids: memories_by_id(db, user_id, run_id, ids), top)
+        # Pull in the memories linked to the top ones, older and newer (same connection), so a memory that
+        # was corrected is hidden even when its correction was not recalled, and we can show what changed.
+        everything = await with_linked(lambda ids, recalled: linked_memories(db, user_id, run_id, ids, recalled), top)
     finally:
         await db.close()
 
