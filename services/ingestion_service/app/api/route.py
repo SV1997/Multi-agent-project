@@ -14,6 +14,7 @@ from ..loader.encoder import load_document, assess_chunking, assess_parse_qualit
 from ..pinecone.upsert import upsert_document, doc_id_for_source
 from ..pinecone.documents import list_documents, delete_document_chunks, chunks_without_document
 from ..chunking.splitter  import split_documents
+from ..chunking.labeler import build_chunk_labeler
 from ..extraction.contracts import document_text, extract_contract, save_extraction
 from ..core.config import CONTRACT_EXTRACTION_ENABLED, DATABASE_URL
 from shared.taxonomy.taxonomy import load_taxonomy
@@ -37,6 +38,7 @@ async def ingest(req:IngestionRequest):
         warnings: list[str] = []
         empty_sources = 0
         taxonomy = load_taxonomy_or_warn(warnings)
+        labeler = build_labeler_or_warn(warnings) if taxonomy is not None else None
 
         for source in req.source:
 
@@ -56,7 +58,10 @@ async def ingest(req:IngestionRequest):
             if source.file_name:
                 for piece in chunk:
                     piece.metadata["file_name"] = source.file_name
-            upserted += upsert_document(chunk, req.namespace, doc_id, source.effective_date, taxonomy=taxonomy)
+            unlisted = unlisted_file_warning(taxonomy, req.namespace, chunk[0], source.file_name or display_name(source.path))
+            if unlisted:
+                warnings.append(unlisted)
+            upserted += upsert_document(chunk, req.namespace, doc_id, source.effective_date, taxonomy=taxonomy, labeler=labeler)
             doc_ids.add(doc_id)
             if CONTRACT_EXTRACTION_ENABLED and req.namespace == "legal" and source.document_type == "contract":
                 warnings.extend(await extract_and_store(docs, doc_id, chunk[0].metadata.get("version", 1), source.path))
@@ -110,6 +115,32 @@ def load_taxonomy_or_warn(warnings: list[str]):
     except Exception as e:
         warnings.append(f"taxonomy unavailable ({type(e).__name__}); chunks were stored without categories - "
                         "fix the taxonomy and run scripts/label_documents.py --apply")
+        return None
+
+def unlisted_file_warning(taxonomy, namespace: str, first_chunk, name: str):
+    """A warning when this file is not listed in policy_taxonomy.yaml, or None.
+
+    A file the taxonomy does not list gets the label "uncategorized", and a search narrowed to a topic never returns
+    such chunks. Nothing else would say so, because the upload itself succeeds. The check uses the same lookup as the
+    tagging (the uploaded file name first, then the end of the chunk's source), so it warns exactly when tagging
+    cannot find the file. A namespace the taxonomy does not cover is not warned about: nothing is tagged there.
+    """
+    if taxonomy is None or namespace not in taxonomy.categories:
+        return None
+    metadata = first_chunk.metadata
+    if taxonomy.document_key(namespace, str(metadata.get("source", "")), metadata.get("file_name")) is not None:
+        return None
+    return (f"{name}: not listed in policy_taxonomy.yaml for '{namespace}', so its chunks are labelled 'uncategorized' "
+            "and a search narrowed to a topic will not find them. Add the file to the taxonomy, then run "
+            "scripts/label_documents.py --apply")
+
+def build_labeler_or_warn(warnings: list[str]):
+    """The chunk-labelling model, or None. Like the taxonomy, a labeller that cannot be built must not stop an upload:
+    the chunks then get their document's whole category list, as they did before chunk-level labels."""
+    try:
+        return build_chunk_labeler()
+    except Exception as e:
+        warnings.append(f"chunk labelling unavailable ({type(e).__name__}); chunks got their document's categories")
         return None
 
 BM25_TAG_FIELDS = ("categories", "is_content", "file_name")

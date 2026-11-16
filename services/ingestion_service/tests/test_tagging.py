@@ -191,3 +191,26 @@ def test_a_label_documents_run_right_after_ingestion_has_nothing_left_to_change(
     counts = label_documents.label_namespace(FakeIndex(store), TAX, "hr", apply=False)
 
     assert counts == {"chunks": 2, "to_change": 0, "failed": 0}
+
+
+# ---------------------------------------------------------------- a file the taxonomy does not list is reported
+
+def test_an_unlisted_file_is_ingested_but_the_response_says_it_will_be_uncategorized(client, store):
+    response = post_ingest(client, file_name="brand_new.pdf")
+
+    assert response.status_code == 200 and response.json()["status"] == "success"
+    assert {e["meta"]["categories"][0] for e in store.values()} == {"uncategorized"}
+    warnings = response.json()["warnings"]
+    assert len(warnings) == 1
+    assert warnings[0].startswith("brand_new.pdf: not listed in policy_taxonomy.yaml for 'hr'")
+    assert "label_documents.py --apply" in warnings[0]
+
+
+def test_a_listed_file_gets_no_unlisted_warning(client, store):
+    assert post_ingest(client, file_name="handbook.pdf").json()["warnings"] == []
+
+
+def test_no_unlisted_warning_when_there_is_no_taxonomy_or_the_namespace_is_not_covered():
+    chunk = Document(page_content="x", metadata={"source": "/tmp/new.pdf", "file_name": "new.pdf"})
+    assert route.unlisted_file_warning(None, "hr", chunk, "new.pdf") is None            # the taxonomy failed to load
+    assert route.unlisted_file_warning(TAX, "engineering", chunk, "new.pdf") is None    # TAX only covers hr

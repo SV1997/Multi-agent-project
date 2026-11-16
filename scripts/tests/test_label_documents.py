@@ -127,3 +127,133 @@ def test_only_the_named_domain_is_labelled():
     index = make_index()
     lines_of(index, apply=True, only="legal")
     assert {namespace for namespace, _ in index.updates} == {"legal"}
+
+
+# ---------------------------------------------------------------- chunk-level labels (--chunk-level)
+
+class FakeLabeler:
+    """Stands in for the model: .batch() answers each chunk by its text. Anything not listed gets an empty answer."""
+
+    def __init__(self, answers):
+        self.answers = answers
+
+    def batch(self, messages, config=None, return_exceptions=False):
+        from shared.taxonomy.chunk_labeler import ChunkLabels
+        return [ChunkLabels(categories=self.answers.get(chunk[1][1], [])) for chunk in messages]
+
+
+def chunk_level_run(index, apply=False, answers=None):
+    lines = []
+    labeler = FakeLabeler(answers if answers is not None else {"Earned leave is 24 days": ["earned_leave"]})
+    failed = label_documents.run(index, TAX, "hr", apply, lines.append, labeler=labeler)
+    return failed, "\n".join(lines)
+
+
+def test_chunk_level_dry_run_shows_the_chosen_labels_and_writes_nothing():
+    index = make_index()
+    failed, text = chunk_level_run(index)
+    assert failed == 0 and index.updates == []
+    assert "categories per chunk:" in text and "e.g. ['earned_leave'] <- 'Earned leave is 24 days'" in text
+
+
+def test_chunk_level_apply_gives_a_chunk_only_the_categories_the_model_chose():
+    index = make_index()
+    chunk_level_run(index, apply=True)
+    assert index.store["hr"]["hr-1"]["categories"] == ["earned_leave"]                 # chosen, not the whole list
+    assert index.store["hr"]["hr-3"]["categories"] == ["uncategorized"]                 # one candidate: no model needed
+
+
+def test_a_chunk_without_text_keeps_its_documents_whole_list():
+    index = make_index()
+    chunk_level_run(index, apply=True)
+    assert index.store["hr"]["hr-4"]["categories"] == ["leave", "earned_leave"]       # hr-4 has no stored text
+
+
+def test_an_empty_model_answer_keeps_the_documents_whole_list():
+    index = make_index()
+    chunk_level_run(index, apply=True, answers={})
+    assert index.store["hr"]["hr-1"]["categories"] == ["leave", "earned_leave"]
+
+
+def test_a_second_chunk_level_apply_changes_nothing():
+    index = make_index()
+    chunk_level_run(index, apply=True)
+    writes = len(index.updates)
+    failed, text = chunk_level_run(index, apply=True)
+    assert failed == 0 and len(index.updates) == writes and "to change     0" in text
+
+
+# ---------------------------------------------------------------- keyword index (--keyword-index)
+
+import contextlib  # noqa: E402
+import pickle  # noqa: E402
+
+
+class FakeCursor:
+    def __init__(self, conn):
+        self.conn, self.row = conn, None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=()):
+        if sql.lstrip().startswith("SELECT"):
+            self.row = self.conn.rows.get(params[0])
+        else:                                                      # the UPDATE: (data, time, namespace)
+            self.conn.rows[params[2]] = params[0]
+            self.conn.writes += 1
+
+    def fetchone(self):
+        return (self.row,) if self.row is not None else None
+
+
+class FakeConn:
+    def __init__(self, rows):
+        self.rows, self.writes = rows, 0
+
+    def cursor(self):
+        return FakeCursor(self)
+
+    def transaction(self):
+        return contextlib.nullcontext()
+
+
+def keyword_conn():
+    chunks = [
+        {"text": "Earned leave is 24 days", "doc_id": "d1", "source": "handbook.pdf", "categories": ["leave", "earned_leave"], "is_content": True},
+        {"text": "plain old chunk with no doc id", "doc_id": "zzz", "source": "x"},
+    ]
+    return FakeConn({"hr": pickle.dumps({"Bm25": "scorer", "chunks": chunks})})
+
+
+LABELS = {("d1", "Earned leave is 24 days"): {"categories": ["earned_leave"], "is_content": True}}
+
+
+def test_keyword_sync_dry_run_counts_the_changes_and_writes_nothing():
+    conn = keyword_conn()
+    result = label_documents.sync_keyword_index(conn, "hr", LABELS, apply=False)
+    assert result == {"chunks": 2, "to_change": 1, "unmatched": 1} and conn.writes == 0
+
+
+def test_keyword_sync_apply_rewrites_only_the_labels_of_matched_chunks():
+    conn = keyword_conn()
+    label_documents.sync_keyword_index(conn, "hr", LABELS, apply=True)
+    data = pickle.loads(conn.rows["hr"])
+    assert data["Bm25"] == "scorer"                                   # the scoring part is untouched
+    assert data["chunks"][0]["categories"] == ["earned_leave"] and data["chunks"][0]["text"] == "Earned leave is 24 days"
+    assert data["chunks"][1] == {"text": "plain old chunk with no doc id", "doc_id": "zzz", "source": "x"}   # unmatched: left alone
+
+
+def test_keyword_sync_a_second_time_writes_nothing():
+    conn = keyword_conn()
+    label_documents.sync_keyword_index(conn, "hr", LABELS, apply=True)
+    writes = conn.writes
+    result = label_documents.sync_keyword_index(conn, "hr", LABELS, apply=True)
+    assert result["to_change"] == 0 and conn.writes == writes
+
+
+def test_a_namespace_with_no_keyword_index_is_skipped():
+    assert label_documents.sync_keyword_index(FakeConn({}), "hr", LABELS, apply=True) == {"chunks": 0, "to_change": 0, "unmatched": 0}
