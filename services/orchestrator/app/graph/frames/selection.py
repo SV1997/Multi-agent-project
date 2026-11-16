@@ -17,3 +17,16 @@ def frame_by_number(frames: list, number):
     if isinstance(number, int) and not isinstance(number, bool) and 0 <= number < len(frames):
         return frames[number]
     return None
+
+
+def frames_by_numbers(frames: list, numbers) -> list:
+    """The frames the model chose, each once, in the order given. Bad numbers are dropped silently - the same rule
+    as frame_by_number - so a wrong answer still means "no frame", never a wrong frame. Duplicates are removed because
+    the model may repeat itself when a question only fits one frame."""
+    chosen, seen = [], set()
+    for number in numbers or ():
+        frame = frame_by_number(frames, number)
+        if frame is not None and frame.frame_id not in seen:
+            seen.add(frame.frame_id)
+            chosen.append(frame)
+    return chosen
