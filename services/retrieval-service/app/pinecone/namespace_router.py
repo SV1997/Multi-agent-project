@@ -47,7 +47,6 @@ def search(vector_store, bm25_data, req: RetrievalQuery, candidates: int, catego
             zip(bm25_chunks, bm25_scores), key=lambda x: x[1], reverse=True
         )
         if localize:
-            # scored as always, then reduced; ranks are counted after this so they stay 1, 2, 3...
             bm25_ranked = [(chunk, score) for chunk, score in bm25_ranked if keyword_chunk_allowed(chunk, categories)]
         for rank, (chunk, _) in enumerate(bm25_ranked, start=1):
             if isinstance(chunk, dict):
@@ -111,6 +110,7 @@ async def query_namespace(req: RetrievalQuery) -> RetrievalResponse:
         namespace= req.namespace,
         query_time_ms=round((time.time()-start)*1000,2),
         fallback_used=fallback_level > 0,
-        fallback_level=fallback_level
+        fallback_level=fallback_level,
+        localized=localize
     )
 

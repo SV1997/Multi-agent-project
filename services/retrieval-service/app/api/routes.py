@@ -28,6 +28,7 @@ async def query(req:RetrievalQuery):
     except Exception:
         logger.exception("query_namespace failed for namespace '%s'.", req.namespace)
         return {
+            "failed": True,                      # so the caller can tell this placeholder from a real, unfallen search
             "results": [{"source": "error", "content": "Retrieval failed due to an internal error.", "score": 0.0, "metadata":{}}],
             "namespace": req.namespace,
             "query_time_ms": 0.0,
