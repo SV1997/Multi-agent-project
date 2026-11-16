@@ -10,7 +10,12 @@ CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", '500'))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP","50"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-CONTRACT_EXTRACTION_ENABLED = os.getenv("CONTRACT_EXTRACTION_ENABLED", "false").lower() == "true"
+# Chunk-level labels: "on" = a language model chooses each chunk's categories from its document's list
+# (shared/taxonomy/chunk_labeler.py). "off" (the default) = every chunk gets its document's whole list, as before.
+CHUNK_LABELING_ENABLED = os.getenv("CHUNK_LABELING", "off").strip().lower() == "on"
+LABELING_MODEL = os.getenv("LABELING_MODEL", "gpt-4o-mini")
+
+CONTRACT_EXTRACTION_ENABLED =os.getenv("CONTRACT_EXTRACTION_ENABLED", "false").lower() == "true"
 EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-4o-mini")
 EXTRACTION_MIN_CONFIDENCE = float(os.getenv("EXTRACTION_MIN_CONFIDENCE", "0.7"))
 EXTRACTION_MAX_CHARS = int(os.getenv("EXTRACTION_MAX_CHARS", "60000"))

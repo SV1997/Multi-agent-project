@@ -20,9 +20,13 @@ from .taxonomy import Taxonomy
 NON_CONTENT = "non_content"
 
 
-def tag_fields(tax: Taxonomy, domain: str, source: str, file_name: str | None = None) -> dict:
-    """What a chunk of this document should carry, according to the taxonomy."""
-    categories = list(tax.for_chunk(domain, source, file_name))
+def tag_fields(tax: Taxonomy, domain: str, source: str, file_name: str | None = None, categories=None) -> dict:
+    """What a chunk of this document should carry, according to the taxonomy.
+
+    `categories` are the labels chosen for this one chunk (chunk_labeler.py). Without them the chunk gets the whole
+    list of its document, which is how every chunk was labelled before chunk-level labels existed.
+    """
+    categories = list(categories) if categories is not None else list(tax.for_chunk(domain, source, file_name))
     fields = {
         "categories": categories,
         "is_content": categories != [NON_CONTENT],

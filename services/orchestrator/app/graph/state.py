@@ -35,10 +35,14 @@ class AgentState(TypedDict):
     search_failures: int
     # categories the search is narrowed to (set by frame_query_node); None = search the whole domain
     localize_categories: list[str] | None
-    # set by frame_query_node: which frame was chosen, and the sentence added to the answering prompt
-    localize_frame_id: str | None
+    # set by frame_query_node: the frames chosen (one, or a few when the question straddles topics), and the sentence
+    # added to the answering prompt. The model picks up to 2 frames; their categories are unioned, so a wrong single
+    # choice is less likely to hide the right chunks.
+    localize_frame_ids: list[str] | None
     localize_wider_categories: list[str] | None     # level 1: the parents' whole family, tried if the first search finds nothing
-    localize_scope: str | None
+    localize_scope: str | None                      # the sentence for level 0 (the frame's own categories)
+    localize_scope_wider: str | None                # the sentence for level 1 (the parents' family)
+    localize_scope_domain: str | None               # the sentence for level 2 (the whole domain)
     # True when the filtered search found nothing and the retrieval service searched the whole domain instead
     localize_fallback_used: bool | None
     localize_fallback_level: int | None             # 0 = the frame's own categories, 1 = the parents' family, 2 = the whole domain
