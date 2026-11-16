@@ -16,6 +16,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
+from shared.taxonomy.content_store import active_version
 from shared.taxonomy.taxonomy import expand_with_descendants, load_taxonomy, parents_family
 from ...core import config
 from .prompts import domain_scope_prompt, scope_prompt, wider_scope_prompt

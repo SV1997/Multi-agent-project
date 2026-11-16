@@ -310,3 +310,97 @@ model ThreadFacts{
   retracted Boolean @default(false)
   @@unique([thread_id,slot,version])
 }
+
+// Policy taxonomy and query frames, read by the orchestrator and the ingestion service (shared/taxonomy/content_store.py).
+// One content_version covers both, because frames name taxonomy categories. Exactly one version is active.
+// A partial unique index on content_version(is_active) WHERE is_active enforces that; Prisma cannot express it,
+// so it is written by hand in the migration. `position` keeps the order the YAML listed things in, because the
+// frame menu numbers and the category order depend on it.
+model ContentVersion {
+  id             Int      @id @default(autoincrement())
+  version_number Int      @unique
+  is_active      Boolean  @default(false)
+  created_at     DateTime @default(now())
+
+  categories          ContentCategory[]
+  category_parents    ContentCategoryParent[]
+  frames              ContentFrame[]
+  frame_categories    ContentFrameCategory[]
+  documents           ContentDocument[]
+  document_categories ContentDocumentCategory[]
+
+  @@map("content_version")
+}
+
+model ContentCategory {
+  version_id  Int
+  domain      String
+  name        String
+  description String
+  position    Int
+  version     ContentVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
+
+  @@id([version_id, domain, name])
+  @@map("category")
+}
+
+model ContentCategoryParent {
+  version_id  Int
+  domain      String
+  name        String
+  parent_name String
+  position    Int
+  version     ContentVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
+
+  @@id([version_id, domain, name, parent_name])
+  @@map("category_parent")
+}
+
+model ContentFrame {
+  version_id  Int
+  frame_id    String
+  domain      String
+  description String
+  position    Int
+  version     ContentVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
+
+  @@id([version_id, frame_id])
+  @@map("frame")
+}
+
+model ContentFrameCategory {
+  version_id    Int
+  frame_id      String
+  category_name String
+  position      Int
+  version       ContentVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
+
+  @@id([version_id, frame_id, category_name])
+  @@map("frame_category")
+}
+
+// Not in the first list of tables, but the taxonomy file also maps each source file to its categories and title
+// (Taxonomy.documents / titles). Without these two tables ingestion would tag every chunk "uncategorized".
+model ContentDocument {
+  version_id Int
+  domain     String
+  file_name  String
+  title      String?
+  position   Int
+  version    ContentVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
+
+  @@id([version_id, domain, file_name])
+  @@map("document")
+}
+
+model ContentDocumentCategory {
+  version_id    Int
+  domain        String
+  file_name     String
+  category_name String
+  position      Int
+  version       ContentVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
+
+  @@id([version_id, domain, file_name, category_name])
+  @@map("document_category")
+}

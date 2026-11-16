@@ -3,6 +3,7 @@ import os
 
 import yaml
 
+from shared.taxonomy.content_store import active_content
 from .models import Frame
 
 HERE = os.path.dirname(__file__)
@@ -43,8 +44,27 @@ def build_registry(taxonomy, data: dict) -> dict[str, list[Frame]]:
     return registry
 
 
+_built: list = []          # [(taxonomy, data, registry)]: the registry built from the database version, kept for reuse
+
+
+def registry_from_database(taxonomy, data: dict) -> dict[str, list[Frame]]:
+    """The database version never changes while the process runs, so build (and check) it once, not per question."""
+    if _built and _built[0][0] is taxonomy and _built[0][1] is data:
+        return _built[0][2]
+    registry = build_registry(taxonomy, data)
+    _built[:] = [(taxonomy, data, registry)]
+    return registry
+
+
 def load_registry(taxonomy, path=None) -> dict[str, list[Frame]]:
-    """Reads frames.yaml (or POLICY_FRAMES_PATH, or `path`) once per call."""
-    path = path or os.getenv("POLICY_FRAMES_PATH") or os.path.join(HERE, "frames.yaml")
+    """Frames of the active database version (see content_store.py), or from frames.yaml (or POLICY_FRAMES_PATH,
+    or `path`) when no version is active or the database cannot be reached. An explicit path always means the file.
+    Both go through build_registry, so a frame naming a missing category is rejected either way."""
+    path = path or os.getenv("POLICY_FRAMES_PATH") or None          # an empty value counts as unset
+    if path is None:
+        stored = active_content()
+        if stored is not None:
+            return registry_from_database(taxonomy, stored[2])
+    path = path or os.path.join(HERE, "frames.yaml")
     with open(path, encoding="utf-8") as file:
         return build_registry(taxonomy, yaml.safe_load(file))
