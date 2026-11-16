@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
 from shared.embeddings.embeddings import embeddings
 from shared.taxonomy.tagging import tag_fields, fields_to_set
+from shared.taxonomy.chunk_labeler import label_chunks
 from langchain_core.documents import Document
 from ..core.config import PINECONE_API_KEY, PINECONE_INDEX_NAME
 
@@ -37,16 +38,26 @@ def _existing_ids(index, namespace: str, doc_id: str) -> list[str]:
     return ids
 
 
-def tag_chunks(chunks: dict[str, Document], namespace: str, taxonomy) -> None:
+def tag_chunks(chunks: dict[str, Document], namespace: str, taxonomy, labeler=None) -> None:
     """Put the taxonomy's labels (categories, is_content, title) on each chunk's metadata, in place.
 
     These are the same fields scripts/label_documents.py writes on chunks stored earlier (shared/taxonomy/tagging.py),
     so a chunk is tagged the same way whenever it was ingested. When the uploaded file name is known it decides
     which taxonomy document the chunk belongs to, because the stored source is a signed or temp name.
+
+    Without a `labeler` every chunk gets its document's whole category list. With one, a model chooses, for each chunk,
+    which of those categories the chunk is about (shared/taxonomy/chunk_labeler.py). All chunks here come from ONE
+    document, so the document's list (the candidates) is worked out once, from the first chunk.
     """
-    for doc in chunks.values():
+    docs = list(chunks.values())
+    chosen = [None] * len(docs)                  # None = "no chunk-level choice": tag_fields then uses the document's list
+    if labeler is not None and docs:
+        first = docs[0].metadata
+        candidates = taxonomy.for_chunk(namespace, str(first.get("source", "")), first.get("file_name"))
+        chosen = label_chunks(labeler, taxonomy, namespace, candidates, [doc.page_content for doc in docs])
+    for doc, categories in zip(docs, chosen):
         source = str(doc.metadata.get("source", ""))
-        target = tag_fields(taxonomy, namespace, source, doc.metadata.get("file_name"))
+        target = tag_fields(taxonomy, namespace, source, doc.metadata.get("file_name"), categories)
         doc.metadata.update(fields_to_set(target, doc.metadata))
 
 
@@ -56,11 +67,12 @@ def upsert_document(
         doc_id: Optional[str] = None,
         effective_date: Optional[str] = None,
         taxonomy=None,
+        labeler=None,
 ) -> int:
     """Upsert chunks of ONE document with deterministic IDs and remove its stale chunks.
 
     With a taxonomy, every chunk is also tagged with its categories (see tag_chunks); without one the
-    chunks are stored exactly as before.
+    chunks are stored exactly as before. With a `labeler` the categories are chosen per chunk, not per document.
 
     Returns the number of unique chunks the document now has in the index.
     """
@@ -83,7 +95,7 @@ def upsert_document(
         unique.setdefault(make_chunk_id(doc_id, doc.page_content), doc)
 
     if taxonomy is not None:
-        tag_chunks(unique, namespace, taxonomy)
+        tag_chunks(unique, namespace, taxonomy, labeler)
 
     if unique:
         PineconeVectorStore.from_documents(
