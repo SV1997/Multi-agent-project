@@ -16,7 +16,7 @@ spec:
         - name: ecr-secret
       containers:
         - name: evaluation-service
-          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/evaluation-service:058d360e12aa2f0c08733385fc910419135b6845
+          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/evaluation-service:cc60387a0e9a4811fae1276fa52ecfad5308c438
           imagePullPolicy: Always
           ports:
             - containerPort: 8004
