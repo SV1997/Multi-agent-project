@@ -1,27 +1,39 @@
 """The query-frame step: decide what kind of question this is, before any search happens.
 
 A frame is a named kind of question tied to the policy categories that can answer it (frames.yaml). One model call
-picks a frame number from a numbered menu. The frame's categories are then expanded down the DAG, so a frame that
-names a parent category also searches its children. The result goes into the state: the categories the search is
-narrowed to, and the scope sentence the answering model is given.
+picks up to MAX_FRAMES numbers from a numbered menu: one when the question clearly fits one frame, two when it
+straddles two topics (for example "my provident fund when I resign" fits both the PF frame and the notice-period
+frame). The chosen frames' categories are unioned and then expanded down the DAG, so a frame that names a parent
+category also searches its children. Multi-frame selection costs the same model call and protects against a wrong
+single choice: one wrong guess can't hide the right chunks when a second guess is allowed.
+
+The result goes into the state: the frame ids chosen, the categories the search is narrowed to, the parents' family
+(level 1), and the scope sentence the answering model is given.
 """
 import logging
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from shared.taxonomy.taxonomy import expand_with_descendants, load_taxonomy, parents_family
 from ...core import config
-from .prompts import scope_prompt
+from .prompts import domain_scope_prompt, scope_prompt, wider_scope_prompt
 from .registry import load_registry
-from .selection import frame_by_number, menu_text
+from .selection import frames_by_numbers, menu_text
 
 logger = logging.getLogger(__name__)
 
+MAX_FRAMES = 2       # how many frames the model may choose at once; bigger numbers widen the scope too much
+
 
 class FrameChoice(BaseModel):
-    number: int
+    """What the model is forced to answer: a list of frame numbers from the menu.
+
+    Zero numbers (or only numbers off the menu) means "no frame fits": the question is then searched without a filter,
+    the same safe behaviour as before multi-frame selection.
+    """
+    numbers: list[int] = Field(description="Chosen frame numbers, up to 2. Empty when no frame fits.")
 
 
 def build_chooser():
@@ -40,51 +52,73 @@ def latest_message(state) -> str:
     return str(humans[-1].content) if humans else ""
 
 
-def choose_frame(frames: list, domain: str, question: str):
-    """Searching without a filter is safe, so a failed call or a bad number must mean "no frame", not a guess."""
+def choose_frames(frames: list, domain: str, question: str) -> list:
+    """Searching without a filter is safe, so a failed call or no valid number must mean "no frame", not a guess.
+
+    Returns up to MAX_FRAMES frames in the order the model gave them, with bad numbers and duplicates dropped.
+    """
     system = (
-        f"You sort a user's question about {domain} policies into one frame: a kind of question.\n\n"
-        f"Frames (answer with the NUMBER):\n{menu_text(frames)}\n\n"
-        "Choose the frame that best fits the question. If no frame fits, answer -1."
+        f"You sort a user's question about {domain} policies into AT MOST {MAX_FRAMES} frames: kinds of question.\n\n"
+        f"Frames (answer with the NUMBERS):\n{menu_text(frames)}\n\n"
+        f"Pick 1 frame when the question clearly fits one; pick up to {MAX_FRAMES} when it straddles two topics. "
+        "Answer with an empty list when no frame fits."
     )
     try:
         choice = build_chooser().invoke([("system", system), ("human", question)])
     except Exception:
         logger.exception("Frame choice failed; the question will be searched without a filter")
-        return None
-    return frame_by_number(frames, choice.number)
+        return []
+    return frames_by_numbers(frames, (choice.numbers or [])[:MAX_FRAMES])
+
+
+def union_categories(frames: list) -> list[str]:
+    """The categories named by all chosen frames, each once, in the order the frames gave them. The DAG expansion
+    comes afterwards; this step only joins what the model picked."""
+    seen, names = set(), []
+    for frame in frames:
+        for name in frame.categories:
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
+    return names
 
 
 def frame_query_node(state) -> dict:
-    """Runs once per question before the domain agent, so the search and the answer both stay inside one frame."""
+    """Runs once per question before the domain agent, so the search and the answer both stay inside the chosen frames."""
     if config.LOCALIZE == "off" or state.get("authorization_denied"):
         return {}
     domain, question = state["domain"], latest_message(state)
     taxonomy = load_taxonomy()
     frames = load_registry(taxonomy).get(domain, [])
-    frame = choose_frame(frames, domain, question) if frames and question else None
-    categories, wider, scope = [], [], None
-    if frame is not None:
-        categories = expand_with_descendants(taxonomy, domain, frame.categories)
+    chosen = choose_frames(frames, domain, question) if frames and question else []
+    categories, wider, scope, scope_wider, scope_domain = [], [], None, None, None
+    if chosen:
+        categories = expand_with_descendants(taxonomy, domain, union_categories(chosen))
         wider = parents_family(taxonomy, domain, categories)          # level 1, tried only if level 0 finds nothing
-        scope = scope_prompt(taxonomy, frame)
-    logger.info("frame %s | categories %s | question %r", frame.frame_id if frame else None, categories, question[:100])
+        # one sentence per level, so the answering step can use the one that matches how far the search widened
+        scope = scope_prompt(taxonomy, chosen)
+        scope_wider = wider_scope_prompt(taxonomy, chosen, wider) if wider else None
+        scope_domain = domain_scope_prompt(chosen)
+    frame_ids = [frame.frame_id for frame in chosen]
+    logger.info("frames %s | categories %s | question %r", frame_ids or None, categories, question[:100])
     return {
-        "localize_frame_id": frame.frame_id if frame else None,
+        "localize_frame_ids": frame_ids or None,
         "localize_categories": categories or None,          # level 0; None = no filter
         "localize_wider_categories": wider or None,         # level 1; level 2 is the whole domain
         "localize_scope": scope,
+        "localize_scope_wider": scope_wider,
+        "localize_scope_domain": scope_domain,
         "localize_fallback_used": None,
         "localize_fallback_level": None,
     }
 
 
 def debug_payload(values: dict):
-    """Shows the frame decision next to the answer, so the demo can point at the frame, the categories and how far the search had to widen."""
-    if not values or not values.get("localize_frame_id"):
+    """Shows the frame decision next to the answer, so the demo can point at the frames, the categories and how far the search had to widen."""
+    if not values or not values.get("localize_frame_ids"):
         return None
     return {
-        "frame_id": values["localize_frame_id"],
+        "frame_ids": values["localize_frame_ids"],
         "categories": values.get("localize_categories"),
         "wider_categories": values.get("localize_wider_categories"),
         "fallback_used": values.get("localize_fallback_used"),

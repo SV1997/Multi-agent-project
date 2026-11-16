@@ -15,6 +15,7 @@ from .nodes import retrieve_sql_context
 from shared.contracts.schema import AgentAnswer, AgentAnswerLLM, RetrievalAssessment, RetrievalPlan, RewrittenQuery, SQLQuerySelection
 from langchain_core.runnables import RunnableConfig
 from ...context_policy import ledger_first, is_ledger
+from ...frames.prompts import scope_for_level
 logger = logging.getLogger(__name__)
 
 def route_after_reason(state:AgentState)-> str:
@@ -360,7 +361,8 @@ Never invent a contract number or claim ID that is not explicitly present in the
     async def reason(state:AgentState)-> dict:
         thread_facts = state.get("thread_facts") or "none"
         conversation_memories = state.get("conversation_memories") or ""
-        scope = f"{state['localize_scope']}\n\n" if state.get("localize_scope") else ""
+        scope_text = scope_for_level(state)          # the sentence for how far the search really widened
+        scope = f"{scope_text}\n\n" if scope_text else ""
         context = build_context_prompt(state)
         remaining = state["tool_calls_remaining"]
         long_term_memory = state.get("long_term_memory")

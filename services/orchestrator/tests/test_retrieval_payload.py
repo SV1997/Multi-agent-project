@@ -109,3 +109,39 @@ def test_the_level_the_retrieval_service_answered_at_is_kept_in_the_state(monkey
 def test_a_search_that_needed_no_widening_records_level_zero(monkeypatch):
     _, result = retrieve(monkeypatch, localize_categories=["leave"])
     assert result["localize_fallback_used"] is False and result["localize_fallback_level"] == 0
+
+
+# ---------------------------------------------------------------- when no filtered search really happened
+
+def test_a_failed_retrieval_reports_no_level_and_says_so(monkeypatch, caplog):
+    monkeypatch.setattr(FakeResponse, "json", lambda self: {"results": [{"source": "error", "content": "failed"}], "failed": True})
+    with caplog.at_level("WARNING"):
+        _, result = retrieve(monkeypatch, localize_categories=["leave"])
+    assert result["localize_fallback_used"] is None and result["localize_fallback_level"] is None
+    assert "retrieval service failed" in caplog.text
+
+
+def test_a_service_that_ignored_the_categories_is_not_reported_as_level_zero(monkeypatch, caplog):
+    monkeypatch.setattr(FakeResponse, "json", lambda self: {"results": [], "localized": False, "fallback_used": False, "fallback_level": 0})
+    with caplog.at_level("WARNING"):
+        _, result = retrieve(monkeypatch, localize_categories=["leave"])
+    assert result["localize_fallback_used"] is None and result["localize_fallback_level"] is None
+    assert "LOCALIZE" in caplog.text
+
+
+def test_a_filtered_search_that_really_ran_keeps_its_level(monkeypatch):
+    monkeypatch.setattr(FakeResponse, "json", lambda self: {"results": [], "localized": True, "fallback_used": True, "fallback_level": 1})
+    _, result = retrieve(monkeypatch, localize_categories=["leave"])
+    assert result["localize_fallback_used"] is True and result["localize_fallback_level"] == 1
+
+
+def test_an_older_service_that_does_not_report_localized_behaves_as_before(monkeypatch):
+    monkeypatch.setattr(FakeResponse, "json", lambda self: {"results": [], "fallback_level": 2, "fallback_used": True})
+    _, result = retrieve(monkeypatch, localize_categories=["leave"])
+    assert result["localize_fallback_level"] == 2
+
+
+def test_without_categories_a_failed_retrieval_adds_no_fallback_fields(monkeypatch):
+    monkeypatch.setattr(FakeResponse, "json", lambda self: {"results": [], "failed": True})
+    _, result = retrieve(monkeypatch)
+    assert "localize_fallback_level" not in result
