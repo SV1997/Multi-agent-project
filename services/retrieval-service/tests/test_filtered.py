@@ -355,3 +355,37 @@ def test_the_setting_reads_the_environment_and_falls_back_to_off(monkeypatch, va
     finally:
         monkeypatch.undo()
         importlib.reload(config)          # leave the module as the other tests expect it
+
+
+# ---------------------------------------------------------------- the response says whether the filter was really applied
+
+def test_the_response_says_the_filter_was_applied_when_localize_is_on(search):
+    search(localize="on", categories=["leave"])
+    assert search.response.localized is True and search.response.failed is False
+
+
+def test_the_response_says_the_filter_was_not_applied_when_localize_is_off(search):
+    search(localize="off", categories=["leave"])
+    assert search.response.localized is False
+
+
+def test_the_response_says_not_localized_for_a_namespace_outside_the_taxonomy(search):
+    search(localize="on", categories=["leave"], namespace="coding")
+    assert search.response.localized is False
+
+
+def test_a_failed_search_is_returned_flagged_as_failed(monkeypatch):
+    from app.api import routes
+
+    async def boom(_request):
+        raise RuntimeError("pinecone down")
+
+    monkeypatch.setattr(routes, "query_namespace", boom)
+    result = asyncio.run(routes.query(RetrievalQuery(query="q", namespace="hr")))
+    assert result["failed"] is True and result["results"][0]["source"] == "error"
+
+
+def test_the_response_contract_defaults_keep_older_callers_working():
+    from shared.contracts.schema import RetrievalResponse
+    response = RetrievalResponse(results=[], namespace="hr", query_time_ms=1.0)
+    assert response.localized is None and response.failed is False
