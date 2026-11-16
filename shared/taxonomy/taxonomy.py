@@ -43,6 +43,8 @@ from urllib.parse import unquote, urlparse
 
 import yaml
 
+from .content_store import active_content
+
 HERE = Path(__file__).parent
 DOMAINS = ("legal", "hr", "engineering", "finance", "support")
 UNCATEGORIZED = "uncategorized"
@@ -130,7 +132,7 @@ def expand_with_descendants(taxonomy: Taxonomy, domain: str, names) -> list[str]
     given = [name for name in names if name in categories]
     below = descendants(taxonomy, domain, given)
     ordered = []
-    for name in categories:                      # the order the yaml lists them in
+    for name in categories:                      
         if name in below:
             ordered.append(name)
     return given + ordered
@@ -238,9 +240,16 @@ def _check_acyclic(domain: str, cats: dict[str, Category], errors: list[str]) ->
 
 @lru_cache(maxsize=1)
 def load_taxonomy(path: str | None = None) -> Taxonomy:
-    """Read policy_taxonomy.yaml (or POLICY_TAXONOMY_PATH, or `path`) and build the Taxonomy. Cached per process:
-    after editing the yaml, restart the service."""
-    path = path or os.getenv("POLICY_TAXONOMY_PATH") or str(HERE / "policy_taxonomy.yaml")
+    """Build the Taxonomy from the active database version (see content_store.py), or from policy_taxonomy.yaml
+    (or POLICY_TAXONOMY_PATH, or `path`) when no version is active or the database cannot be reached. An explicit
+    path always means the file. Cached per process: after a new version or an edited yaml, restart the service.
+    Either way the data goes through parse_taxonomy, so the checks are the same."""
+    path = path or os.getenv("POLICY_TAXONOMY_PATH") or None          # an empty value counts as unset
+    if path is None:
+        stored = active_content()
+        if stored is not None:
+            return parse_taxonomy(stored[1])
+    path = path or str(HERE / "policy_taxonomy.yaml")
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     return parse_taxonomy(data)

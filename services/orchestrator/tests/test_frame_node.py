@@ -160,12 +160,14 @@ def test_every_run_clears_the_previous_turns_fallback_flag(on):
     assert frame_query_node(state(localize_fallback_used=True))["localize_fallback_used"] is None
 
 
-def test_one_line_is_logged_with_the_question_frame_and_categories(on, caplog):
+def test_one_line_is_logged_with_the_question_frame_categories_and_content_version(on, caplog, monkeypatch):
+    monkeypatch.setattr(node, "active_version", lambda: 7)
     on(number_of("hr.leave_entitlement"))
     with caplog.at_level(logging.INFO, logger="app.graph.frames.node"):
         frame_query_node(state("how many days?"))
     lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("frame ")]
-    assert lines == ["frame hr.leave_entitlement | categories ['earned_leave', 'sick_leave'] | question 'how many days?'"]
+    assert lines == ["frame hr.leave_entitlement | categories ['earned_leave', 'sick_leave'] | content version 7 | "
+                     "question 'how many days?'"]
 
 
 def test_every_key_the_node_writes_is_a_field_of_the_graph_state(on):
