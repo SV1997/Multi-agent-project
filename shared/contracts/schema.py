@@ -33,6 +33,7 @@ class RetrievalResponse(BaseModel):
     query_time_ms: float
     fallback_used: bool = False  # True when the first, narrowest search found nothing and the search was widened
     fallback_level: int = 0  # 0 = the request's categories, 1 = the wider categories, 2 = the whole domain
+
     # True when the category filter was really applied; False when this service ignored the categories (its LOCALIZE is
     # off, or the namespace is not localized). None = an older service that does not say. Lets the caller notice that
     # the two services' LOCALIZE settings disagree, instead of showing a filter that never ran.
