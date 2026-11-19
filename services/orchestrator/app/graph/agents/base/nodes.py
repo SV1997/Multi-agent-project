@@ -48,9 +48,6 @@ async def retrieve_context(state:AgentState)-> dict:
     }
     if categories:
         if data.get("failed") or data.get("localized") is False:
-            # No filtered search happened, so there is no level to report. Saying "level 0" here would show a filter
-            # that never ran. `localized is False` (not just missing) means the retrieval service ignored the
-            # categories: its LOCALIZE is off, which disagrees with this service's setting.
             update["localize_fallback_used"] = None
             update["localize_fallback_level"] = None
             if data.get("failed"):
@@ -59,7 +56,6 @@ async def retrieve_context(state:AgentState)-> dict:
                 logger.warning("The retrieval service ignored the categories (its LOCALIZE is off or the namespace is "
                                "not localized): check that LOCALIZE is set to the same value in both services.")
         else:
-            # the retrieval service says how far it had to widen: 0 = the frame's categories, 1 = the parents' family, 2 = the whole domain
             update["localize_fallback_used"] = bool(data.get("fallback_used"))
             update["localize_fallback_level"] = data.get("fallback_level", 0)
     return update

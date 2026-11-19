@@ -94,8 +94,7 @@ def frame_query_node(state) -> dict:
     categories, wider, scope, scope_wider, scope_domain = [], [], None, None, None
     if chosen:
         categories = expand_with_descendants(taxonomy, domain, union_categories(chosen))
-        wider = parents_family(taxonomy, domain, categories)          # level 1, tried only if level 0 finds nothing
-        # one sentence per level, so the answering step can use the one that matches how far the search widened
+        wider = parents_family(taxonomy, domain, categories)
         scope = scope_prompt(taxonomy, chosen)
         scope_wider = wider_scope_prompt(taxonomy, chosen, wider) if wider else None
         scope_domain = domain_scope_prompt(chosen)
