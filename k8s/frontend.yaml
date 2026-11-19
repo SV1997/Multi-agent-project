@@ -16,7 +16,7 @@ spec:
         - name: ecr-secret
       containers:
         - name: frontend
-          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/frontend:cc60387a0e9a4811fae1276fa52ecfad5308c438
+          image: 635668539225.dkr.ecr.ap-south-1.amazonaws.com/frontend:9d0fdf33e206e33fd2dde83985b507256cbfbcef
           env:
             - name: API_GATEWAY_HOST
               value: api-gateway.default.svc.cluster.local
