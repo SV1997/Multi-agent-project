@@ -57,7 +57,7 @@ async def event_generator(req:OrchestratorRequest):
         "employee_email":req.employee_email,
         "turn":req.turn
     }
-    steps_list = ["classify_domain","check_authorization","legal_agent","hr_agent","support_agent","finance_agent","engineering_agent", "prepare_retrieval", "retrieve", "grade_retrieval", "rewrite_query", "insufficient_evidence"]
+    steps_list = ["classify_domain","check_authorization","legal_agent","hr_agent","support_agent","finance_agent","engineering_agent", "prepare_retrieval", "retrieve", "grade_retrieval", "rewrite_query", "insufficient_evidence", "handover"]
     seen_stages = set()
     emitted_final_tokens = False
 

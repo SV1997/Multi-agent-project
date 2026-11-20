@@ -75,3 +75,24 @@ def test_with_localize_on_a_broken_frames_file_stops_startup(supervisor, monkeyp
     with pytest.raises(ValueError, match="unknown category 'nope'"):
         build(supervisor, monkeypatch, "on")
     build(supervisor, monkeypatch, "off")                                          # but off never looks at the frames
+
+
+# ---- agent -> supervisor handover (limited form: one handover per turn, authorized domains only) ----
+
+def test_every_agent_can_hand_over_or_go_to_review_and_a_handover_re_enters_authorization(supervisor, monkeypatch):
+    edges = edges_of(build(supervisor, monkeypatch, "off"))
+    for agent in DOMAIN_AGENTS:
+        assert (agent, "handover") in edges
+        assert (agent, "human_review_gate") in edges                              # the normal path is unchanged
+    assert ("handover", "check_authorization") in edges                           # no shortcut past authorization
+    assert ("handover", "human_review_gate") in edges                             # a declined handover keeps the answer
+    assert ("handover", "frame_query") not in edges
+
+
+def test_only_an_agent_that_gave_up_is_handed_over(supervisor):
+    assert supervisor.route_after_agent({}) == "review"
+    assert supervisor.route_after_agent({"needs_handover": True}) == "handover"
+
+
+def test_the_handover_happens_at_most_once_per_turn(supervisor):
+    assert supervisor.route_after_agent({"needs_handover": True, "handed_over": True}) == "review"
