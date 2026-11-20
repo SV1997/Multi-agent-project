@@ -132,6 +132,12 @@ finance:
       title: "Harvard Expense Reimbursement Policy FY2017"
       categories: [travel_expenses, expense_claims_and_receipts, non_reimbursable_expenses]
 
+    finance_chunk_label_test.pdf:
+      title: "Finance Policy for Chunk Labelling Test"
+      categories: [purchasing_procedures, vendor_selection, conflict_of_interest, contracts_and_agreements,
+                   special_purchases, federal_funds_compliance, travel_expenses,
+                   expense_claims_and_receipts, non_reimbursable_expenses]
+
 legal:
   categories:
     data_protection_law:
