@@ -274,6 +274,8 @@ STEP 2 - OTHERWISE CHOOSE A SOURCE.
                 "requires_human_review": False,
             },
             "requires_human_review": False,
+            # Tell the supervisor this agent gave up. It decides whether another domain should try.
+            "needs_handover": True,
         }
 
     def route_after_planning(state:AgentState)-> str:

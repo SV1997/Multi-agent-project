@@ -37,6 +37,13 @@ from .frames.node import frame_query_node
 async def get_connection():
     return await asyncpg.connect(DATABASE_URL)
 DISABLE_LONG_TERM_MEMORY = os.getenv("DISABLE_LONG_TERM_MEMORY") == "1"
+def route_after_agent(state: AgentState) -> str:
+    """After a domain agent: hand over if it gave up AND we have not already handed over this turn."""
+    if state.get("needs_handover") and not state.get("handed_over"):
+        return "handover"
+    return "review"
+
+
 def set_supervisor_agent(checkpointer,store):
     class DomainClassification(BaseModel):
         domain: Literal["legal","hr","engineering","finance","support"] = Field(description="It provide routing detail for the tool base on the literal")
@@ -234,6 +241,9 @@ Domains:
             return {
                 "domain": domain,
                 "classification_failed": False,
+                # new turn: forget the previous turn's handover (state is checkpointed across turns)
+                "needs_handover": False,
+                "handed_over": False,
             }
 
         return {"classification_failed": True}
@@ -258,6 +268,36 @@ Domains:
                 "requires_human_review": False,
             },
         }
+
+    async def handover(state: AgentState) -> dict:
+        """The agent could not answer. Ask the classifier once more, telling it that domain failed."""
+        failed = state["domain"]
+        try:
+            decision = await classifier_function_calling.ainvoke([
+                CLASSIFIER_PROMPT,
+                SystemMessage(content=f"The {failed} agent searched its knowledge base and could not answer. "
+                                      f"Choose the domain most likely to hold the answer. It must not be {failed}."),
+                HumanMessage(content=latest_human_query(state)),
+            ])
+            new_domain = decision.domain
+        except Exception:
+            logger.exception("Handover classification failed; keeping the first agent's answer.")
+            return {"needs_handover": False}
+
+        if new_domain == failed:                      # the classifier still picked the same domain: give up
+            return {"needs_handover": False}
+
+        last = state["messages"][-1]                  # the first agent's "I couldn't find..." reply
+        return {
+            "domain": new_domain,
+            "handed_over": True,
+            "needs_handover": False,
+            "fallback_used": False,                   # the new agent starts with a clean retrieval fallback
+            "messages": [RemoveMessage(id=last.id)],  # keep that reply out of the new agent's history
+        }
+
+    def route_after_handover(state: AgentState) -> str:
+        return "accepted" if state.get("handed_over") else "declined"
 
     def check_authorization(state:AgentState)->dict:
         allowed = state.get("allowed_namespace") or []
@@ -467,11 +507,15 @@ Output: []"""
             "denied": "access_denied"
         }
     )
-    graph.add_edge("finance_agent", "human_review_gate")
-    graph.add_edge("legal_agent", "human_review_gate")
-    graph.add_edge("hr_agent", "human_review_gate")
-    graph.add_edge("engineering_agent", "human_review_gate")
-    graph.add_edge("support_agent", "human_review_gate")
+    # An agent that cannot answer may be handed over once (see handover); every other path goes to review as before.
+    graph.add_node("handover", handover)
+    for agent_node in ("finance_agent", "legal_agent", "hr_agent", "engineering_agent", "support_agent"):
+        graph.add_conditional_edges(
+            agent_node, route_after_agent, {"handover": "handover", "review": "human_review_gate"}
+        )
+    graph.add_conditional_edges(
+        "handover", route_after_handover, {"accepted": "check_authorization", "declined": "human_review_gate"}
+    )
     graph.add_edge("human_review_gate", "memory_add")
     graph.add_edge("memory_add","extract_memories")
     graph.add_edge("extract_memories",END)
