@@ -190,7 +190,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (state.currentStage) {
-      setStage(mapNodeNameToStage(state.currentStage));
+      // Nodes with no rail step (handover, grade_retrieval, insufficient_evidence...) must not blank the rail:
+      // an unmapped name used to set the stage to "", findIndex gave -1, and every step lost its colour.
+      const mappedStage = mapNodeNameToStage(state.currentStage);
+      if (mappedStage) setStage(mappedStage);
       const agent = mapNodeNameToAgent(state.currentStage);
       if (agent) setActiveAgent(agent);
     }

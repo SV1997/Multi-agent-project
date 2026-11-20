@@ -88,12 +88,12 @@ export default function RoutingRail({ stageIndex, isBusy, activeAgent, sources, 
                 >
                   {s.label}
                 </div>
-                {s.id === "routed" && isPast && activeAgent && (
+                {s.id === "agent" && isPast && activeAgent && (
                   <div style={{ fontSize: 11, color: activeAgent.color, marginTop: 2, fontFamily: "'IBM Plex Mono', monospace" }}>
                     → {activeAgent.name} agent
                   </div>
                 )}
-                {s.id === "retrieving" && isPast && sources > 0 && (
+                {s.id === "retrieve" && isPast && sources > 0 && (
                   <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2, fontFamily: "'IBM Plex Mono', monospace" }}>
                     {sources} passages · Pinecone
                   </div>
