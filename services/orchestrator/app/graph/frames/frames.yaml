@@ -28,6 +28,15 @@ finance:
   finance.procurement:
     description: "buying goods and services: purchasing procedures, choosing vendors and special purchases"
     categories: [procurement]
+    finance.travel_limits:
+    description: "limits and rules for business travel: flights, hotels, meals and travel advances"
+    categories: [travel_expenses]
+  finance.claim_process:
+    description: "how to submit an expense claim: receipts, deadlines and credit card reconciliation"
+    categories: [expense_claims_and_receipts]
+  finance.approvals_and_conflicts:
+    description: "who approves a purchase, the quote thresholds, and conflict of interest declarations"
+    categories: [purchasing_procedures, conflict_of_interest]
 
 legal:
   legal.data_subject_rights:
