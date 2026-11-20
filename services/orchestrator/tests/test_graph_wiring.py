@@ -94,5 +94,7 @@ def test_only_an_agent_that_gave_up_is_handed_over(supervisor):
     assert supervisor.route_after_agent({"needs_handover": True}) == "handover"
 
 
-def test_the_handover_happens_at_most_once_per_turn(supervisor):
-    assert supervisor.route_after_agent({"needs_handover": True, "handed_over": True}) == "review"
+def test_the_handover_token_runs_out(supervisor):
+    for used in range(supervisor.MAX_HANDOVERS):
+        assert supervisor.route_after_agent({"needs_handover": True, "handover_count": used}) == "handover"
+    assert supervisor.route_after_agent({"needs_handover": True, "handover_count": supervisor.MAX_HANDOVERS}) == "review"

@@ -37,9 +37,12 @@ from .frames.node import frame_query_node
 async def get_connection():
     return await asyncpg.connect(DATABASE_URL)
 DISABLE_LONG_TERM_MEMORY = os.getenv("DISABLE_LONG_TERM_MEMORY") == "1"
+MAX_HANDOVERS = 2      # the "token": at most this many handovers per turn, so a question can never loop between agents
+
+
 def route_after_agent(state: AgentState) -> str:
-    """After a domain agent: hand over if it gave up AND we have not already handed over this turn."""
-    if state.get("needs_handover") and not state.get("handed_over"):
+    """After a domain agent: hand over only if it gave up AND the turn still has handovers left."""
+    if state.get("needs_handover") and state.get("handover_count", 0) < MAX_HANDOVERS:
         return "handover"
     return "review"
 
@@ -243,7 +246,8 @@ Domains:
                 "classification_failed": False,
                 # new turn: forget the previous turn's handover (state is checkpointed across turns)
                 "needs_handover": False,
-                "handed_over": False,
+                "handover_count": 0,
+                "tried_domains": [],
             }
 
         return {"classification_failed": True}
@@ -270,34 +274,36 @@ Domains:
         }
 
     async def handover(state: AgentState) -> dict:
-        """The agent could not answer. Ask the classifier once more, telling it that domain failed."""
-        failed = state["domain"]
+        """The agent could not answer. Ask the classifier again, telling it which domains already failed."""
+        tried = (state.get("tried_domains") or []) + [state["domain"]]
         try:
             decision = await classifier_function_calling.ainvoke([
                 CLASSIFIER_PROMPT,
-                SystemMessage(content=f"The {failed} agent searched its knowledge base and could not answer. "
-                                      f"Choose the domain most likely to hold the answer. It must not be {failed}."),
+                SystemMessage(content=f"These agents searched their knowledge bases and could not answer: {', '.join(tried)}. "
+                                      f"Choose the domain most likely to hold the answer. It must not be one of those."),
                 HumanMessage(content=latest_human_query(state)),
             ])
             new_domain = decision.domain
         except Exception:
-            logger.exception("Handover classification failed; keeping the first agent's answer.")
-            return {"needs_handover": False}
+            logger.exception("Handover classification failed; keeping the last agent's answer.")
+            return {"needs_handover": False, "handover_accepted": False}
 
-        if new_domain == failed:                      # the classifier still picked the same domain: give up
-            return {"needs_handover": False}
+        if new_domain in tried:                       # the classifier picked a domain that already failed: give up
+            return {"needs_handover": False, "handover_accepted": False}
 
-        last = state["messages"][-1]                  # the first agent's "I couldn't find..." reply
+        last = state["messages"][-1]                  # the failed agent's "I couldn't find..." reply
         return {
             "domain": new_domain,
-            "handed_over": True,
+            "tried_domains": tried,
+            "handover_count": state.get("handover_count", 0) + 1,
+            "handover_accepted": True,
             "needs_handover": False,
             "fallback_used": False,                   # the new agent starts with a clean retrieval fallback
             "messages": [RemoveMessage(id=last.id)],  # keep that reply out of the new agent's history
         }
 
     def route_after_handover(state: AgentState) -> str:
-        return "accepted" if state.get("handed_over") else "declined"
+        return "accepted" if state.get("handover_accepted") else "declined"
 
     def check_authorization(state:AgentState)->dict:
         allowed = state.get("allowed_namespace") or []
