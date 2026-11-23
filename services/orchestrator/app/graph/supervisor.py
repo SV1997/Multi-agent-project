@@ -159,24 +159,24 @@ def set_supervisor_agent(checkpointer,store):
 
     async def retrieve_memories(state:AgentState)->dict:
         # if DISABLE_LONG_TERM_MEMORY:
-        return {"long_term_memory": None}
-        # try:
-        #     query = latest_human_query(state)
-        #     print(query, 137)
-        #     if not query:
-        #         return {"long_term_memory":None}
-        #     namespace = (memory_namespace_key(state.get("employee_email")),)
-        #     # identity facts (name, location, ...) are always loaded; the question only decides the rest
-        #     identity, semantic = await asyncio.gather(
-        #         asyncio.gather(*(store.aget(namespace, key) for key in IDENTITY_ALIASES)),
-        #         store.asearch(namespace, query=query, limit=SEMANTIC_LIMIT),
-        #     )
-        #     memory_text = build_memory_text(dict(zip(IDENTITY_ALIASES, identity)), semantic)
-        #     print(memory_text)
-        #     return {"long_term_memory":memory_text}
-        # except Exception:
-        #     logger.exception("some issue occurred while fetching memories")
-        #     return {"long_term_memory":None}
+        # return {"long_term_memory": None}
+        try:
+            query = latest_human_query(state)
+            print(query, 137)
+            if not query:
+                return {"long_term_memory":None}
+            namespace = (memory_namespace_key(state.get("employee_email")),)
+            # identity facts (name, location, ...) are always loaded; the question only decides the rest
+            identity, semantic = await asyncio.gather(
+                asyncio.gather(*(store.aget(namespace, key) for key in IDENTITY_ALIASES)),
+                store.asearch(namespace, query=query, limit=SEMANTIC_LIMIT),
+            )
+            memory_text = build_memory_text(dict(zip(IDENTITY_ALIASES, identity)), semantic)
+            print(memory_text)
+            return {"long_term_memory":memory_text}
+        except Exception:
+            logger.exception("some issue occurred while fetching memories")
+            return {"long_term_memory":None}
 
 
     async def extract_memories(state:AgentState)-> dict:
