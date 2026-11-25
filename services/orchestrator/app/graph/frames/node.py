@@ -122,4 +122,5 @@ def debug_payload(values: dict):
         "wider_categories": values.get("localize_wider_categories"),
         "fallback_used": values.get("localize_fallback_used"),
         "fallback_level": values.get("localize_fallback_level"),
+        "scope_level": values.get("localize_scope_level"),
     }
