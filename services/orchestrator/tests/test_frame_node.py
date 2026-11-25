@@ -262,7 +262,7 @@ def test_debug_information_shows_the_frames_the_levels_and_how_far_the_search_wi
     values = {"localize_frame_ids": ["hr.leave_entitlement"], "localize_categories": ["earned_leave"],
               "localize_wider_categories": ["leave", "earned_leave"], "localize_fallback_used": True, "localize_fallback_level": 1}
     assert debug_payload(values) == {"frame_ids": ["hr.leave_entitlement"], "categories": ["earned_leave"],
-                                     "wider_categories": ["leave", "earned_leave"], "fallback_used": True, "fallback_level": 1}
+                                     "wider_categories": ["leave", "earned_leave"], "fallback_used": True, "fallback_level": 1, "scope_level": None}
 
 
 def test_there_is_no_debug_information_without_a_frame():

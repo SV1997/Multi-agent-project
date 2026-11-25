@@ -28,10 +28,8 @@ async def retrieve_context(state:AgentState)-> dict:
     }
     # Categories narrow the search to one part of the domain. Without any, the request is what it always was.
     categories = state.get("localize_categories")
-    if categories:
-        payload["categories"] = categories
-        if state.get("localize_wider_categories"):
-            payload["wider_categories"] = state["localize_wider_categories"]
+    scope_level = state.get("localize_scope_level") or 0
+    payload.update(scope_payload(state, scope_level))
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
@@ -47,7 +45,8 @@ async def retrieve_context(state:AgentState)-> dict:
         "retrieval_attempts": state.get("retrieval_attempts", 0) + 1,
     }
     if categories:
-        if data.get("failed") or data.get("localized") is False:
+        no_filter_sent = scope_level >= 2        # level 2 sends no categories, so the service reports "not localized"
+        if data.get("failed") or (data.get("localized") is False and not no_filter_sent):
             update["localize_fallback_used"] = None
             update["localize_fallback_level"] = None
             if data.get("failed"):
@@ -56,9 +55,23 @@ async def retrieve_context(state:AgentState)-> dict:
                 logger.warning("The retrieval service ignored the categories (its LOCALIZE is off or the namespace is "
                                "not localized): check that LOCALIZE is set to the same value in both services.")
         else:
-            update["localize_fallback_used"] = bool(data.get("fallback_used"))
-            update["localize_fallback_level"] = data.get("fallback_level", 0)
+            update["localize_fallback_used"] = bool(data.get("fallback_used")) or scope_level > 0
+            update["localize_fallback_level"] = max(data.get("fallback_level", 0), scope_level)
     return update
+
+
+def scope_payload(state: AgentState, level: int) -> dict:
+    """The category part of the request for a scope level: 0 = frame, 1 = parents' family, 2 = no filter."""
+    categories = state.get("localize_categories")
+    if not categories or level >= 2:
+        return {}
+    if level == 1:
+        wider = state.get("localize_wider_categories")
+        return {"categories": wider} if wider else {}
+    scope = {"categories": categories}
+    if state.get("localize_wider_categories"):
+        scope["wider_categories"] = state["localize_wider_categories"]
+    return scope
 
 async def retrieve_sql_context(state:AgentState, function:str, extracted_data:dict)->dict:
         query = state.get("search_query")

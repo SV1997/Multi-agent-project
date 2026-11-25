@@ -30,6 +30,46 @@ def route_after_reason(state:AgentState)-> str:
     return "end"
 
 
+def effective_scope_level(state: AgentState) -> int:
+    return max(state.get("localize_scope_level") or 0, state.get("localize_fallback_level") or 0)
+
+
+def should_widen_scope(state: AgentState) -> bool:
+    return bool(
+        state.get("localize_categories")
+        and state.get("retrieval_source") == "vector"
+        and effective_scope_level(state) < 2
+    )
+
+
+def widen_scope_update(state: AgentState) -> dict:
+    """One level wider; the extra retrieval is paid for with one extra attempt so rewrites are not used up."""
+    target = effective_scope_level(state) + 1
+    if target == 1 and not state.get("localize_wider_categories"):
+        target = 2
+    return {
+        "localize_scope_level": target,
+        "max_retrieval_attempts": state.get("max_retrieval_attempts", 3) + 1,
+    }
+
+
+def grading_route(state: AgentState, retrieval_method: list[str]) -> str:
+    if state.get("retrieval_quality") == "relevant" or state.get("retrieval_can_use_tool"):
+        return "reason"
+    if should_widen_scope(state):
+        return "widen_scope"
+    exhausted = state.get("retrieval_attempts", 0) >= state.get("max_retrieval_attempts", 3)
+    if not exhausted and state.get("retrieval_source") == "vector":
+        return "rewrite_query"
+    if not state.get("fallback_used") and "sql" in retrieval_method and "vector" in retrieval_method:
+        current = state.get("retrieval_source")
+        if current == "sql":
+            return "fallback_to_vector"
+        elif current == "vector" and exhausted:
+            return "fallback_to_sql"
+    return "insufficient_evidence"
+
+
 def apply_conflict_policy(requires_human_review: bool, conflict_detected: bool) -> bool:
     """Sources that disagree always need a human to confirm the answer."""
     return requires_human_review or conflict_detected
@@ -184,6 +224,7 @@ STEP 2 - OTHERWISE CHOOSE A SOURCE.
             "retrieval_missing": None,
             "tried_queries": [query],
             "retrieval_can_use_tool": False,
+            "localize_scope_level": 0,
         }
 
     async def grade_retrieval(state: AgentState) -> dict:
@@ -244,18 +285,7 @@ STEP 2 - OTHERWISE CHOOSE A SOURCE.
         return "reason"
 
     def route_after_grading(state: AgentState) -> str:
-        if state.get("retrieval_quality") == "relevant" or state.get("retrieval_can_use_tool"):
-            return "reason"
-        exhausted= state.get("retrieval_attempts", 0) >= state.get("max_retrieval_attempts", 3)
-        if not exhausted and state.get("retrieval_source")=="vector":
-            return "rewrite_query"
-        if not state.get("fallback_used") and "sql" in retrieval_method and "vector" in retrieval_method:
-            current = state.get("retrieval_source")
-            if current == "sql":
-                return "fallback_to_vector"
-            elif current == "vector" and exhausted:
-                return "fallback_to_sql"
-        return "insufficient_evidence"
+        return grading_route(state, retrieval_method)
 
     def insufficient_evidence(state: AgentState) -> dict:
         answer = (
@@ -333,6 +363,10 @@ Never invent a contract number or claim ID that is not explicitly present in the
     graph.add_node("prepare_retrieval", prepare_retrieval)
     graph.add_node("grade_retrieval", grade_retrieval)
     graph.add_node("rewrite_query", rewrite_query)
+    async def widen_scope(state: AgentState) -> dict:
+        return widen_scope_update(state)
+
+    graph.add_node("widen_scope", widen_scope)
     graph.add_node("fallback_to_vector",fallback_to_vector)
     graph.add_node("fallback_to_sql",fallback_to_sql)
     graph.add_node("insufficient_evidence", insufficient_evidence)
@@ -545,6 +579,7 @@ f"{long_term_memory}\n\n"
         {
             "reason": "reason",
             "rewrite_query": "rewrite_query",
+            "widen_scope": "widen_scope",
             "insufficient_evidence": "insufficient_evidence",
             "fallback_to_vector":"fallback_to_vector",
             "fallback_to_sql":"fallback_to_sql"
@@ -553,6 +588,7 @@ f"{long_term_memory}\n\n"
     graph.add_edge("fallback_to_sql","sql_retrieval")
     graph.add_edge("fallback_to_vector","retrieve")
     graph.add_edge("rewrite_query", "retrieve")
+    graph.add_edge("widen_scope", "retrieve")
     graph.add_edge("insufficient_evidence", END)
     if tools:
         graph.add_node("tools", tools_node)

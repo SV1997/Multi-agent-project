@@ -50,3 +50,4 @@ class AgentState(TypedDict):
     # True when the filtered search found nothing and the retrieval service searched the whole domain instead
     localize_fallback_used: bool | None
     localize_fallback_level: int | None             # 0 = the frame's own categories, 1 = the parents' family, 2 = the whole domain
+    localize_scope_level: int | None                # the level the orchestrator asks for (widen_scope raises it); same meaning
