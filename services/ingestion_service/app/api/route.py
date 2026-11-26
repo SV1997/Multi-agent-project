@@ -3,7 +3,6 @@ import os
 import asyncio
 import pickle
 import re
-from contextlib import asynccontextmanager
 from urllib.parse import unquote, urlparse
 from datetime import datetime, timezone
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
@@ -22,19 +21,6 @@ import asyncpg
 from rank_bm25 import BM25Okapi
 async def get_connection():
     return await asyncpg.connect(DATABASE_URL)
-
-@asynccontextmanager
-async def bm25_lock(namespace: str):
-    """One ingest or delete at a time may read-modify-write a namespace's keyword index."""
-    conn = await get_connection()
-    try:
-        async with conn.transaction():
-            await conn.execute("SET LOCAL lock_timeout = '30s'")
-            await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", f"bm25:{namespace}")
-            yield
-    finally:
-        await conn.close()
-
 router = APIRouter()
 
 @router.post(
@@ -87,22 +73,21 @@ async def ingest(req:IngestionRequest):
                 f"No text could be extracted from {names}; nothing was indexed. "
                 "The file may be blank or scanned (OCR is not applied)."))
 
-        async with bm25_lock(req.namespace):
-            existing_data = await load_bm25_index(req.namespace)
-            existing_chunks = existing_data["chunks"] if existing_data else []
-            # drop the previous version of any re-ingested document before adding the new one
-            # indexes saved by older versions hold plain strings; wrap them so they can be filtered and re-tokenised
-            existing_chunks = [c if isinstance(c, dict) else {"text": c, "source": "unknown"} for c in existing_chunks]
-            existing_chunks = [c for c in existing_chunks if c.get("doc_id") not in doc_ids]
-            combined_chunks = existing_chunks + new_chunks
+        existing_data = await load_bm25_index(req.namespace)
+        existing_chunks = existing_data["chunks"] if existing_data else []
+        # drop the previous version of any re-ingested document before adding the new one
+        # indexes saved by older versions hold plain strings; wrap them so they can be filtered and re-tokenised
+        existing_chunks = [c if isinstance(c, dict) else {"text": c, "source": "unknown"} for c in existing_chunks]
+        existing_chunks = [c for c in existing_chunks if c.get("doc_id") not in doc_ids]
+        combined_chunks = existing_chunks + new_chunks
 
-            tokenized_corpus = [c["text"].lower().split() for c in combined_chunks]
-            bm25Object = BM25Okapi(tokenized_corpus)
-            saved_data={
-                "Bm25": bm25Object,
-                "chunks": combined_chunks
-            }
-            await save_bm25_index(req.namespace, saved_data)
+        tokenized_corpus = [c["text"].lower().split() for c in combined_chunks]
+        bm25Object = BM25Okapi(tokenized_corpus)
+        saved_data={
+            "Bm25": bm25Object,
+            "chunks": combined_chunks
+        }
+        await save_bm25_index(req.namespace, saved_data)
         return IngestionResponse(
             chunks_created=upserted,
             namespace = req.namespace,
@@ -238,19 +223,18 @@ async def delete_indexed_document(doc_id: str = Path(pattern=DOC_ID_PATTERN), na
         chunks_deleted = await asyncio.to_thread(delete_document_chunks, namespace, doc_id)
 
         keyword_chunks_removed = 0
-        async with bm25_lock(namespace):
-            bm25_data = await load_bm25_index(namespace)
-            if bm25_data:
-                all_chunks = bm25_data["chunks"]
-                kept = chunks_without_document(all_chunks, doc_id)
-                keyword_chunks_removed = len(all_chunks) - len(kept)
-                if keyword_chunks_removed:
-                    if kept:
-                        tokenized_corpus = [c["text"].lower().split() for c in kept]
-                        await save_bm25_index(namespace, {"Bm25": BM25Okapi(tokenized_corpus), "chunks": kept})
-                    else:
-                        # an index over zero chunks cannot be built; retrieval treats "no row" as "no keyword index"
-                        await delete_bm25_index(namespace)
+        bm25_data = await load_bm25_index(namespace)
+        if bm25_data:
+            all_chunks = bm25_data["chunks"]
+            kept = chunks_without_document(all_chunks, doc_id)
+            keyword_chunks_removed = len(all_chunks) - len(kept)
+            if keyword_chunks_removed:
+                if kept:
+                    tokenized_corpus = [c["text"].lower().split() for c in kept]
+                    await save_bm25_index(namespace, {"Bm25": BM25Okapi(tokenized_corpus), "chunks": kept})
+                else:
+                    # an index over zero chunks cannot be built; retrieval treats "no row" as "no keyword index"
+                    await delete_bm25_index(namespace)
 
         extractions_deleted = await delete_extractions(doc_id, namespace)
     except Exception as e:
