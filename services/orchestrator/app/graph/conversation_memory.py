@@ -120,8 +120,18 @@ async def ensure_schema() -> None:
         await db.execute(SCHEMA_SQL)
 
 
+def to_dicts(rows) -> list[dict]:
+    dicts = []
+    for row in rows:
+        dicts.append(dict(row))
+    return dicts
+
+
 def to_vector_literal(vector: list[float]) -> str:
-    return "[" + ",".join(f"{value:.7f}" for value in vector) + "]"
+    values = []
+    for value in vector:
+        values.append(f"{value:.7f}")
+    return "[" + ",".join(values) + "]"
 
 
 def memory_hash(text: str) -> str:
@@ -131,18 +141,18 @@ def memory_hash(text: str) -> str:
 
 async def similar_memories(db, user_id, run_id, query_vec, limit=10) -> list[dict]:
     rows = await db.fetch(SIMILAR_SQL, user_id, run_id, to_vector_literal(query_vec), limit)
-    return [dict(row) for row in rows]
+    return to_dicts(rows)
 
 
 async def linked_memories(db, user_id, run_id, ids: list[str], recalled: list[str]) -> list[dict]:
     """Stored memories with one of these ids, or that link to one of the recalled ids. This user and run only."""
     rows = await db.fetch(LINKED_SQL, user_id, run_id, ids, recalled)
-    return [dict(row) for row in rows]
+    return to_dicts(rows)
 
 
 async def all_memories(db, user_id, run_id) -> list[dict]:
     rows = await db.fetch(ALL_SQL, user_id, run_id)
-    return [dict(row) for row in rows]
+    return to_dicts(rows)
 
 
 async def insert_memory(db, user_id, run_id, text, vec, linked_ids, turn_id) -> bool:
@@ -165,19 +175,29 @@ async def insert_memory(db, user_id, run_id, text, vec, linked_ids, turn_id) -> 
 # ---------------------------------------------------------------------------
 
 def linked_ids_of(row: dict) -> list[str]:
-    return [str(target) for target in row.get("linked_ids") or []]
+    linked_ids = []
+    for target in row.get("linked_ids") or []:
+        linked_ids.append(str(target))
+    return linked_ids
 
 
 def current_memories(rows: list[dict]) -> list[dict]:
     """Drop every memory that a newer memory in the list links to (i.e. corrects or changes). Order is kept."""
-    created_at = {str(row["id"]): row["created_at"] for row in rows}
-    replaced = {
-        target
-        for row in rows
-        for target in linked_ids_of(row)
-        if target in created_at and row["created_at"] > created_at[target]
-    }
-    return [row for row in rows if str(row["id"]) not in replaced]
+    created_at = {}
+    for row in rows:
+        created_at[str(row["id"])] = row["created_at"]
+
+    replaced = set()
+    for row in rows:
+        for target in linked_ids_of(row):
+            if target in created_at and row["created_at"] > created_at[target]:
+                replaced.add(target)
+
+    current = []
+    for row in rows:
+        if str(row["id"]) not in replaced:
+            current.append(row)
+    return current
 
 
 async def with_linked(fetch, rows: list[dict], max_rounds: int = 3) -> list[dict]:
@@ -193,12 +213,18 @@ async def with_linked(fetch, rows: list[dict], max_rounds: int = 3) -> list[dict
         return rows
 
     for _ in range(max_rounds):
-        known_ids = {str(row["id"]) for row in rows}
-        linked_ids = {target for row in rows for target in linked_ids_of(row)}
+        known_ids = set()
+        linked_ids = set()
+        for row in rows:
+            known_ids.add(str(row["id"]))
+            linked_ids.update(linked_ids_of(row))
         missing_ids = sorted(linked_ids - known_ids)
 
         fetched = await fetch(missing_ids, sorted(known_ids))
-        new_rows = [dict(row) for row in fetched if str(row["id"]) not in known_ids]
+        new_rows = []
+        for row in fetched:
+            if str(row["id"]) not in known_ids:
+                new_rows.append(dict(row))
         if not new_rows:
             break
         rows += new_rows
@@ -208,7 +234,11 @@ async def with_linked(fetch, rows: list[dict], max_rounds: int = 3) -> list[dict
 def valid_links(existing: list[dict], linked_ids: list, new_created_at) -> tuple[list[str], list[str]]:
     """Split linked_ids into (valid, dropped). A link is valid only if it points at an existing memory that is
     older than the new one. Each valid id appears once."""
-    older_ids = {str(memory["id"]) for memory in existing if memory["created_at"] < new_created_at}
+    older_ids = set()
+    for memory in existing:
+        if memory["created_at"] < new_created_at:
+            older_ids.add(str(memory["id"]))
+
     valid, dropped = [], []
     for link in map(str, linked_ids):
         if link not in older_ids:
@@ -220,11 +250,18 @@ def valid_links(existing: list[dict], linked_ids: list, new_created_at) -> tuple
 
 def attach_earlier(current: list[dict], everything: list[dict]) -> list[dict]:
     """Give each current memory an "earlier" list: the texts of the memories it links to, when we have them."""
-    text_by_id = {str(row["id"]): row["text"] for row in everything}
-    return [
-        {**row, "earlier": [text_by_id[target] for target in linked_ids_of(row) if target in text_by_id]}
-        for row in current
-    ]
+    text_by_id = {}
+    for row in everything:
+        text_by_id[str(row["id"])] = row["text"]
+
+    with_earlier = []
+    for row in current:
+        earlier = []
+        for target in linked_ids_of(row):
+            if target in text_by_id:
+                earlier.append(text_by_id[target])
+        with_earlier.append({**row, "earlier": earlier})
+    return with_earlier
 
 
 # ---------------------------------------------------------------------------
@@ -239,10 +276,14 @@ def render_memory_line(number: int, row: dict) -> str:
 def render_memories(rows: list[dict]) -> str:
     if not rows:
         return ""
-    lines = "\n".join(render_memory_line(number, row) for number, row in enumerate(rows, 1))
+    lines = []
+    for number, row in enumerate(rows, 1):
+        lines.append(render_memory_line(number, row))
+    memory_block = "\n".join(lines)
+
     return (
         "Memories from this conversation, oldest first. If two memories disagree, "
-        f"the later one is current:\n{lines}"
+        f"the later one is current:\n{memory_block}"
     )
 
 
@@ -252,8 +293,10 @@ def recent_text(messages, max_items: int = 6) -> str:
     The newest user message is passed to the extractor separately, and the answer to it is
     not context for understanding it, so both are left out.
     """
-    human_positions = [i for i, message in enumerate(messages) if isinstance(message, HumanMessage)]
-    newest_human = human_positions[-1] if human_positions else len(messages)
+    newest_human = len(messages)
+    for i, message in enumerate(messages):
+        if isinstance(message, HumanMessage):
+            newest_human = i
 
     turns = []
     for message in messages[:newest_human]:
@@ -317,7 +360,11 @@ Output: {"memories": []}"""
 
 
 def build_extraction_messages(existing: list[dict], recent: str, message: str) -> list:
-    existing_block = "\n".join(f"[{i}] {memory['text']}" for i, memory in enumerate(existing)) or "(none)"
+    existing_lines = []
+    for i, memory in enumerate(existing):
+        existing_lines.append(f"[{i}] {memory['text']}")
+    existing_block = "\n".join(existing_lines) or "(none)"
+
     return [
         SystemMessage(content=MEMORY_EXTRACTION_PROMPT),
         HumanMessage(content=(
@@ -390,9 +437,20 @@ def clean_token(token: str) -> str:
     return token.strip(TOKEN_PUNCTUATION).lower()
 
 
+def has_digit(token: str) -> bool:
+    for char in token:
+        if char.isdigit():
+            return True
+    return False
+
+
 def digit_tokens(text: str) -> set[str]:
-    tokens = (clean_token(word) for word in text.split())
-    return {token for token in tokens if any(char.isdigit() for char in token)}
+    tokens = set()
+    for word in text.split():
+        token = clean_token(word)
+        if has_digit(token):
+            tokens.add(token)
+    return tokens
 
 
 def is_grounded(note_text: str, sources: list[str]) -> bool:
@@ -427,7 +485,11 @@ def select_grounded(new_memories: list[dict], sources: list[str]) -> list[dict]:
 
 
 async def store_memories(user_id: str, run_id: str, memories: list[dict], turn_id: str | None) -> None:
-    vectors = await embeddings.aembed_documents([memory["text"] for memory in memories])
+    texts = []
+    for memory in memories:
+        texts.append(memory["text"])
+
+    vectors = await embeddings.aembed_documents(texts)
     async with database() as db:
         async with db.transaction():
             for memory, vector in zip(memories, vectors):
@@ -454,7 +516,9 @@ async def add_memories(user_id: str, run_id: str, message: str, recent: str = ""
 
     drop_invalid_links(new_memories, existing)
 
-    sources = [message] + [memory["text"] for memory in existing]
+    sources = [message]
+    for memory in existing:
+        sources.append(memory["text"])
     grounded = select_grounded(new_memories, sources)
     if grounded:
         await store_memories(user_id, run_id, grounded, turn_id)
@@ -471,7 +535,10 @@ def to_keyword_query(query: str) -> str:
 
 
 def score_rows(rows: list[dict]) -> None:
-    max_keyword = max((row["keyword"] for row in rows), default=0.0)
+    max_keyword = 0.0
+    for row in rows:
+        max_keyword = max(max_keyword, row["keyword"])
+
     for row in rows:
         if max_keyword > 0:
             row["keyword_norm"] = row["keyword"] / max_keyword
@@ -488,7 +555,10 @@ async def search_memories(user_id: str, run_id: str, query: str,
 
     async with database() as db:
         rows = await db.fetch(SEARCH_SQL, user_id, run_id, to_vector_literal(query_vec), keyword_query)
-        candidates = [dict(row) for row in rows if row["semantic"] >= threshold]
+        candidates = []
+        for row in rows:
+            if row["semantic"] >= threshold:
+                candidates.append(dict(row))
         score_rows(candidates)
         top = sorted(candidates, key=lambda row: row["score"], reverse=True)[:top_k]
 
