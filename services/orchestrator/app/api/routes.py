@@ -68,6 +68,11 @@ async def event_generator(req:OrchestratorRequest):
                 node_name = event.get("name")
                 if node_name in steps_list and node_name not in seen_stages:
                     seen_stages.add(node_name)
+                    if node_name == "handover":
+                        # the question is going to another agent: let the agent and retrieval steps be announced
+                        # again (so the progress rail follows the new agent), and let a second handover show too
+                        seen_stages -= {"handover", "legal_agent", "hr_agent", "support_agent", "finance_agent",
+                                        "engineering_agent", "prepare_retrieval", "retrieve"}
                     yield f"data:{json.dumps({'node_name': node_name})}\n\n"
 
             if event["event"] == "on_custom_event":   # verify this exact name for your version

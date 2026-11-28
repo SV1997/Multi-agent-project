@@ -12,10 +12,13 @@ class AgentState(TypedDict):
     authorization_denied: bool
     denied_domain: list[str]
     classification_failed: bool
-    # Agent -> supervisor handover. needs_handover: the agent gave up. handed_over: this turn already used its one handover.
-    # Both are reset by classify_domain at the start of every turn (the checkpointer keeps state across turns).
+    # Agent -> supervisor handover. needs_handover: the agent gave up (set only when retrieval and its fallbacks failed).
+    # handover_count is the token: it is compared with MAX_HANDOVERS. tried_domains are the agents that already failed.
+    # classify_domain resets these at the start of every turn (the checkpointer keeps state across turns).
     needs_handover: bool
-    handed_over: bool
+    handover_count: int
+    tried_domains: list[str]
+    handover_accepted: bool
     # Adaptive-retrieval state. These fields make the agent's retrieval
     # decisions inspectable in LangGraph checkpoints and traces.
     original_query: str | None
