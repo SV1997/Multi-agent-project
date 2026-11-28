@@ -1,27 +1,40 @@
-from .context_policy import get_connection
 import hashlib
+import logging
+import os
+import re
 import uuid
+from collections import defaultdict
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+
 import asyncpg
-from ..core.config import DATABASE_URL
-from shared.embeddings import embeddings
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
-from langchain.chat_models import init_chat_model
 from groq import (
     APIConnectionError as GroqConnectionError,
     APIError as GroqAPIError,
     InternalServerError as GroqInternalServerError,
     RateLimitError as GroqRateLimitError,
 )
-from shared.contracts.schema import HR_SLOTS, Extraction, Fact, MemoryExtraction as Mem0Extraction
-import logging
+from langchain.chat_models import init_chat_model
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+from shared.contracts.schema import MemoryExtraction as Mem0Extraction
+from shared.embeddings import embeddings
+
+from ..core.config import DATABASE_URL
+
 logger = logging.getLogger(__name__)
-import re
-import os
-from collections import defaultdict
-from datetime import datetime, timezone
-def memory_mode()->str:
-     return os.getenv("MEMORY_MODE")
+
 MEMORY_STATS = defaultdict(int)
+
+
+def memory_mode() -> str | None:
+    return os.getenv("MEMORY_MODE")
+
+
+# ---------------------------------------------------------------------------
+# SQL
+# ---------------------------------------------------------------------------
+
 SCHEMA_SQL = """
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE SCHEMA IF NOT EXISTS memory;
@@ -41,61 +54,151 @@ CREATE TABLE IF NOT EXISTS memory.conversation_memories (
 CREATE INDEX IF NOT EXISTS cm_scope_idx    ON memory.conversation_memories (user_id, run_id);
 CREATE INDEX IF NOT EXISTS cm_keywords_idx ON memory.conversation_memories USING gin (keywords);
 """
-SEARCH_SQL="""
+
+SEARCH_SQL = """
 SELECT id, text, created_at, linked_ids,
-1 - (embedding<=>($3::text)::vector) AS semantic,
-CASE WHEN $4 = '' THEN 0
-ELSE ts_rank_cd(keywords, to_tsquery('english', $4)) END           AS keyword
+       1 - (embedding <=> ($3::text)::vector) AS semantic,
+       CASE WHEN $4 = '' THEN 0
+            ELSE ts_rank_cd(keywords, to_tsquery('english', $4))
+       END AS keyword
 FROM memory.conversation_memories
 WHERE user_id = $1 AND run_id = $2
 ORDER BY embedding <=> ($3::text)::vector
 LIMIT 60
-
 """
 
-# Strict json_schema decoding sometimes makes gpt-oss write its reasoning ("no new fact, so empty")
-# instead of {"memories": []}, which Groq rejects as output_parse_failed. The tool-calling path
-# did not show that failure in the classifier tests, so it is used here too.
-# Only transient errors are retried: a parse failure repeats identically and every retry costs tokens.
-memory_extraction_llm_mem0 = (init_chat_model(model="groq:openai/gpt-oss-120b", temperature=0, streaming=False, reasoning_effort="low").
-        with_structured_output(Mem0Extraction, method="function_calling")
-        .with_config(tags=["fetching_memory"])
-        .with_retry(
-            stop_after_attempt=2,
-            retry_if_exception_type=(GroqConnectionError, GroqInternalServerError, GroqRateLimitError),
-        )
-        )
+SIMILAR_SQL = """
+SELECT id, text, created_at
+FROM memory.conversation_memories
+WHERE user_id = $1 AND run_id = $2
+ORDER BY embedding <=> ($3::text)::vector
+LIMIT $4
+"""
 
+INSERT_SQL = """
+INSERT INTO memory.conversation_memories
+    (id, user_id, run_id, text, hash, embedding, linked_ids, source_turn_id)
+VALUES ($1, $2, $3, $4, $5, ($6::text)::vector, $7::uuid[], $8)
+ON CONFLICT (user_id, run_id, hash) DO NOTHING
+"""
+
+LINKED_SQL = """
+SELECT id, text, created_at, linked_ids
+FROM memory.conversation_memories
+WHERE user_id = $1 AND run_id = $2
+  AND (id = ANY($3::uuid[]) OR linked_ids && $4::uuid[])
+"""
+
+ALL_SQL = """
+SELECT id, text, linked_ids, source_turn_id, created_at
+FROM memory.conversation_memories
+WHERE user_id = $1 AND run_id = $2
+ORDER BY created_at
+"""
+
+
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
 
 async def get_connection():
     return await asyncpg.connect(DATABASE_URL)
 
-async def ensure_schema() -> None:
-    """Create the conversation-memory table and indexes if missing. Safe to run on every startup."""
+
+@asynccontextmanager
+async def database():
     db = await get_connection()
     try:
-        await db.execute(SCHEMA_SQL)
+        yield db
     finally:
         await db.close()
 
-def to_vector_literal(v: list[float]) -> str:
-    return "[" + ",".join(f"{x:.7f}" for x in v) + "]"
+
+async def ensure_schema() -> None:
+    """Create the conversation-memory table and indexes if missing. Safe to run on every startup."""
+    async with database() as db:
+        await db.execute(SCHEMA_SQL)
+
+
+def to_dicts(rows) -> list[dict]:
+    dicts = []
+    for row in rows:
+        dicts.append(dict(row))
+    return dicts
+
+
+def to_vector_literal(vector: list[float]) -> str:
+    values = []
+    for value in vector:
+        values.append(f"{value:.7f}")
+    return "[" + ",".join(values) + "]"
+
+
+def memory_hash(text: str) -> str:
+    normalized = " ".join(text.lower().split())
+    return hashlib.md5(normalized.encode()).hexdigest()
+
 
 async def similar_memories(db, user_id, run_id, query_vec, limit=10) -> list[dict]:
-    rows = await db.fetch("""
-    SELECT id, text, created_at FROM memory.conversation_memories
-    WHERE user_id=$1 AND run_id=$2
-    ORDER BY embedding <=> ($3::text)::vector
-    LIMIT $4
-""", user_id, run_id, to_vector_literal(query_vec), limit)
-    return [dict(r) for r in rows]
-    
+    rows = await db.fetch(SIMILAR_SQL, user_id, run_id, to_vector_literal(query_vec), limit)
+    return to_dicts(rows)
+
+
+async def linked_memories(db, user_id, run_id, ids: list[str], recalled: list[str]) -> list[dict]:
+    """Stored memories with one of these ids, or that link to one of the recalled ids. This user and run only."""
+    rows = await db.fetch(LINKED_SQL, user_id, run_id, ids, recalled)
+    return to_dicts(rows)
+
+
+async def all_memories(db, user_id, run_id) -> list[dict]:
+    rows = await db.fetch(ALL_SQL, user_id, run_id)
+    return to_dicts(rows)
+
+
+async def insert_memory(db, user_id, run_id, text, vec, linked_ids, turn_id) -> bool:
+    status = await db.execute(
+        INSERT_SQL,
+        uuid.uuid4(),
+        user_id,
+        run_id,
+        text,
+        memory_hash(text),
+        to_vector_literal(vec),
+        linked_ids,
+        turn_id,
+    )
+    return status.endswith(" 1")
+
+
+# ---------------------------------------------------------------------------
+# Links between memories
+# ---------------------------------------------------------------------------
+
+def linked_ids_of(row: dict) -> list[str]:
+    linked_ids = []
+    for target in row.get("linked_ids") or []:
+        linked_ids.append(str(target))
+    return linked_ids
+
+
 def current_memories(rows: list[dict]) -> list[dict]:
     """Drop every memory that a newer memory in the list links to (i.e. corrects or changes). Order is kept."""
-    created = {str(r["id"]): r["created_at"] for r in rows}
-    replaced = {str(target) for r in rows for target in r.get("linked_ids") or []
-                if str(target) in created and r["created_at"] > created[str(target)]}
-    return [r for r in rows if str(r["id"]) not in replaced]
+    created_at = {}
+    for row in rows:
+        created_at[str(row["id"])] = row["created_at"]
+
+    replaced = set()
+    for row in rows:
+        for target in linked_ids_of(row):
+            if target in created_at and row["created_at"] > created_at[target]:
+                replaced.add(target)
+
+    current = []
+    for row in rows:
+        if str(row["id"]) not in replaced:
+            current.append(row)
+    return current
+
 
 async def with_linked(fetch, rows: list[dict], max_rounds: int = 3) -> list[dict]:
     """Add the memories connected to these rows by a link, in both directions: the older ones they correct,
@@ -106,67 +209,83 @@ async def with_linked(fetch, rows: list[dict], max_rounds: int = 3) -> list[dict
     one of the recalled ids.
     """
     rows = list(rows)
-    for _ in range(max_rounds if rows else 0):
-        have = {str(r["id"]) for r in rows}
-        linked_to = sorted({str(t) for r in rows for t in r.get("linked_ids") or []} - have)
-        found = [dict(r) for r in await fetch(linked_to, sorted(have)) if str(r["id"]) not in have]
-        if not found:
+    if not rows:
+        return rows
+
+    for _ in range(max_rounds):
+        known_ids = set()
+        linked_ids = set()
+        for row in rows:
+            known_ids.add(str(row["id"]))
+            linked_ids.update(linked_ids_of(row))
+        missing_ids = sorted(linked_ids - known_ids)
+
+        fetched = await fetch(missing_ids, sorted(known_ids))
+        new_rows = []
+        for row in fetched:
+            if str(row["id"]) not in known_ids:
+                new_rows.append(dict(row))
+        if not new_rows:
             break
-        rows += found
+        rows += new_rows
     return rows
+
 
 def valid_links(existing: list[dict], linked_ids: list, new_created_at) -> tuple[list[str], list[str]]:
     """Split linked_ids into (valid, dropped). A link is valid only if it points at an existing memory that is
     older than the new one. Each valid id appears once."""
-    older = {str(m["id"]) for m in existing if m["created_at"] < new_created_at}
+    older_ids = set()
+    for memory in existing:
+        if memory["created_at"] < new_created_at:
+            older_ids.add(str(memory["id"]))
+
     valid, dropped = [], []
-    for link in linked_ids:
-        link = str(link)
-        if link in older:
-            if link not in valid:
-                valid.append(link)
-        else:
+    for link in map(str, linked_ids):
+        if link not in older_ids:
             dropped.append(link)
+        elif link not in valid:
+            valid.append(link)
     return valid, dropped
+
 
 def attach_earlier(current: list[dict], everything: list[dict]) -> list[dict]:
     """Give each current memory an "earlier" list: the texts of the memories it links to, when we have them."""
-    text = {str(r["id"]): r["text"] for r in everything}
-    return [{**r, "earlier": [text[str(t)] for t in r.get("linked_ids") or [] if str(t) in text]} for r in current]
+    text_by_id = {}
+    for row in everything:
+        text_by_id[str(row["id"])] = row["text"]
+
+    with_earlier = []
+    for row in current:
+        earlier = []
+        for target in linked_ids_of(row):
+            if target in text_by_id:
+                earlier.append(text_by_id[target])
+        with_earlier.append({**row, "earlier": earlier})
+    return with_earlier
+
+
+# ---------------------------------------------------------------------------
+# Rendering
+# ---------------------------------------------------------------------------
+
+def render_memory_line(number: int, row: dict) -> str:
+    earlier = f" (earlier: {'; '.join(row['earlier'])})" if row.get("earlier") else ""
+    return f"{number}. {row['text']}{earlier}"
+
 
 def render_memories(rows: list[dict]) -> str:
     if not rows:
-         return ""
-    def line(i, row):
-        earlier = f" (earlier: {'; '.join(row['earlier'])})" if row.get("earlier") else ""
-        return f"{i}. {row['text']}{earlier}"
-    lines = "\n".join(line(i, row) for i, row in enumerate(rows, 1))
-    return ("Memories from this conversation, oldest first. If two memories disagree, "
-            f"the later one is current:\n{lines}")
-async def insert_memory(db, user_id, run_id, text, vec, linked_ids, turn_id) -> bool:
-    status = await db.execute("""
-    INSERT INTO  memory.conversation_memories (id, user_id, run_id, text, hash, embedding, linked_ids, source_turn_id)
-           VALUES ($1, $2, $3, $4, $5, ($6::text)::vector, $7::uuid[], $8)
-           ON CONFLICT (user_id, run_id, hash) DO NOTHING 
-""", uuid.uuid4(), user_id, run_id, text,memory_hash(text),to_vector_literal(vec), linked_ids,turn_id)
-    return  status.endswith(" 1")
+        return ""
+    lines = []
+    for number, row in enumerate(rows, 1):
+        lines.append(render_memory_line(number, row))
+    memory_block = "\n".join(lines)
 
-async def linked_memories(db, user_id, run_id, ids: list[str], recalled: list[str]) -> list[dict]:
-    """Stored memories with one of these ids, or that link to one of the recalled ids. This user and run only."""
-    rows = await db.fetch(
-        """SELECT id, text, created_at, linked_ids FROM memory.conversation_memories
-           WHERE user_id = $1 AND run_id = $2 AND (id = ANY($3::uuid[]) OR linked_ids && $4::uuid[])""",
-        user_id, run_id, ids, recalled)
-    return [dict(r) for r in rows]
+    return (
+        "Memories from this conversation, oldest first. If two memories disagree, "
+        f"the later one is current:\n{memory_block}"
+    )
 
-async def all_memories(db, user_id, run_id) -> list[dict]:
-     rows = await db.fetch(
-        """SELECT id, text, linked_ids, source_turn_id, created_at
-           FROM memory.conversation_memories
-           WHERE user_id = $1 AND run_id = $2
-           ORDER BY created_at""",
-        user_id, run_id)
-     return [dict(r) for r in rows]
 
 def recent_text(messages, max_items: int = 6) -> str:
     """The last few turns BEFORE the newest user message, oldest first.
@@ -174,17 +293,38 @@ def recent_text(messages, max_items: int = 6) -> str:
     The newest user message is passed to the extractor separately, and the answer to it is
     not context for understanding it, so both are left out.
     """
-    last_human = max((i for i, m in enumerate(messages) if isinstance(m, HumanMessage)), default=len(messages))
+    newest_human = len(messages)
+    for i, message in enumerate(messages):
+        if isinstance(message, HumanMessage):
+            newest_human = i
+
     turns = []
-    for m in messages[:last_human]:
-        if isinstance(m, HumanMessage):
-            turns.append(f"User: {m.content}")
-        elif isinstance(m, AIMessage) and m.content and not getattr(m, "tool_calls", None):
-            turns.append(f"Assistant: {m.content}")
+    for message in messages[:newest_human]:
+        if isinstance(message, HumanMessage):
+            turns.append(f"User: {message.content}")
+        elif isinstance(message, AIMessage) and message.content and not getattr(message, "tool_calls", None):
+            turns.append(f"Assistant: {message.content}")
     return "\n".join(turns[-max_items:])
 
-def memory_hash(text: str) -> str:
-    return hashlib.md5(" ".join(text.lower().split()).encode()).hexdigest()
+
+# ---------------------------------------------------------------------------
+# Extraction
+# ---------------------------------------------------------------------------
+
+memory_extraction_llm_mem0 = (
+    init_chat_model(
+        model="groq:openai/gpt-oss-120b",
+        temperature=0,
+        streaming=False,
+        reasoning_effort="low",
+    )
+    .with_structured_output(Mem0Extraction, method="function_calling")
+    .with_config(tags=["fetching_memory"])
+    .with_retry(
+        stop_after_attempt=2,
+        retry_if_exception_type=(GroqConnectionError, GroqInternalServerError, GroqRateLimitError),
+    )
+)
 
 MEMORY_EXTRACTION_PROMPT = """You keep the memory of an HR assistant for one conversation. Read the user's new
 message and write down each fact about the user's own situation that the assistant
@@ -219,145 +359,213 @@ New message: "My colleague's ticket SR-90011 is also open. What is the claim lim
 Output: {"memories": []}"""
 
 
-async def extract_relevant_info(existing: list[dict], recent: str, message: str) -> list[dict]:
-        """Turn the user's new message into new memories.
+def build_extraction_messages(existing: list[dict], recent: str, message: str) -> list:
+    existing_lines = []
+    for i, memory in enumerate(existing):
+        existing_lines.append(f"[{i}] {memory['text']}")
+    existing_block = "\n".join(existing_lines) or "(none)"
 
-        existing: nearby stored memories, each {"id", "text"} (e.g. from similar_memories).
-        recent:   a short text rendering of the last few turns, for context only.
-        message:  the user's new message.
-        Returns [{"text": str, "linked_ids": [memory id, ...], "bad_links": [ref, ...]}], or [] if nothing
-        qualifies or the call fails. "bad_links" holds the link references the model gave that did not
-        point at any existing memory (not a number, or out of range); they are not in "linked_ids".
-        """
-        existing_block = "\n".join(f"[{i}] {m['text']}" for i, m in enumerate(existing)) or "(none)"
+    return [
+        SystemMessage(content=MEMORY_EXTRACTION_PROMPT),
+        HumanMessage(content=(
+            f"Existing memories:\n{existing_block}\n\n"
+            f"Recent conversation:\n{recent or '(none)'}\n\n"
+            f"New message: {message}"
+        )),
+    ]
+
+
+def resolve_link_refs(refs: list, existing: list[dict]) -> tuple[list[str], list]:
+    linked_ids = []
+    bad_links = []
+    for ref in refs:
         try:
-            result = await memory_extraction_llm_mem0.ainvoke([
-                SystemMessage(content=MEMORY_EXTRACTION_PROMPT),
-                HumanMessage(content=(
-                    f"Existing memories:\n{existing_block}\n\n"
-                    f"Recent conversation:\n{recent or '(none)'}\n\n"
-                    f"New message: {message}"
-                )),
-            ])
-        except GroqAPIError as e:
-            # Provider-side failure (unparseable output, rate limit, ...): nothing is stored for
-            # this turn. Expected often enough that a one-line warning is enough, not a traceback.
-            logger.warning("Memory extraction skipped (%s: %s). Last user message: %r",
-                           type(e).__name__, getattr(e, "code", None) or str(e)[:120], message)
-            return []
-        except Exception:
-            logger.exception("Memory extraction failed. Last user message: %r", message)
-            return []
+            index = int(str(ref).strip("[] "))
+        except ValueError:
+            index = -1
 
-        new_memories = []
-        for memory in result.memories:
-            text = memory.text.strip()
-            if not text:
-                continue
-            # The model refers to existing memories by their [number]; map that back to real ids
-            # and ignore anything that isn't a valid number.
-            linked_ids = []
-            bad_links = []
-            for ref in memory.linked:
-                try:
-                    index = int(str(ref).strip("[] "))
-                except ValueError:
-                    index = -1
-                if not 0 <= index < len(existing):
-                    logger.warning("Ignoring invalid memory link %r (have %d existing memories)", ref, len(existing))
-                    bad_links.append(ref)
-                    continue
-                memory_id = str(existing[index]["id"])
-                if memory_id not in linked_ids:
-                    linked_ids.append(memory_id)
-            new_memories.append({"text": text, "linked_ids": linked_ids, "bad_links": bad_links})
-        return new_memories
-_STRIP = ".,;:!?()\"'₹$"
+        if not 0 <= index < len(existing):
+            logger.warning("Ignoring invalid memory link %r (have %d existing memories)", ref, len(existing))
+            bad_links.append(ref)
+            continue
 
-def _clean(token:str)-> str:
-        return token.strip(_STRIP).lower()
+        memory_id = str(existing[index]["id"])
+        if memory_id not in linked_ids:
+            linked_ids.append(memory_id)
+    return linked_ids, bad_links
 
-def digit_tokens(text:str)-> str:
-        return {t for t in (_clean(w) for w in text.split()) if t and any(c.isdigit() for c in t)}
 
-def is_grounded(note_text: str, sources:list[str]) -> bool:
-        """True if every number/ID token in the note appears as a whole token in a source."""
-        allowed: set[str] = set()
-        for s in sources:
-            allowed |= digit_tokens(s)
-        return digit_tokens(note_text) <= allowed
+async def extract_relevant_info(existing: list[dict], recent: str, message: str) -> list[dict]:
+    """Turn the user's new message into new memories.
+
+    existing: nearby stored memories, each {"id", "text"} (e.g. from similar_memories).
+    recent:   a short text rendering of the last few turns, for context only.
+    message:  the user's new message.
+    Returns [{"text": str, "linked_ids": [memory id, ...], "bad_links": [ref, ...]}], or [] if nothing
+    qualifies or the call fails. "bad_links" holds the link references the model gave that did not
+    point at any existing memory (not a number, or out of range); they are not in "linked_ids".
+    """
+    try:
+        result = await memory_extraction_llm_mem0.ainvoke(
+            build_extraction_messages(existing, recent, message))
+    except GroqAPIError as e:
+        logger.warning("Memory extraction skipped (%s: %s). Last user message: %r",
+                       type(e).__name__, getattr(e, "code", None) or str(e)[:120], message)
+        return []
+    except Exception:
+        logger.exception("Memory extraction failed. Last user message: %r", message)
+        return []
+
+    new_memories = []
+    for memory in result.memories:
+        text = memory.text.strip()
+        if not text:
+            continue
+        linked_ids, bad_links = resolve_link_refs(memory.linked, existing)
+        new_memories.append({"text": text, "linked_ids": linked_ids, "bad_links": bad_links})
+    return new_memories
+
+
+# ---------------------------------------------------------------------------
+# Grounding check
+# ---------------------------------------------------------------------------
+
+TOKEN_PUNCTUATION = ".,;:!?()\"'₹$"
+
+
+def clean_token(token: str) -> str:
+    return token.strip(TOKEN_PUNCTUATION).lower()
+
+
+def has_digit(token: str) -> bool:
+    for char in token:
+        if char.isdigit():
+            return True
+    return False
+
+
+def digit_tokens(text: str) -> set[str]:
+    tokens = set()
+    for word in text.split():
+        token = clean_token(word)
+        if has_digit(token):
+            tokens.add(token)
+    return tokens
+
+
+def is_grounded(note_text: str, sources: list[str]) -> bool:
+    """True if every number/ID token in the note appears as a whole token in a source."""
+    allowed: set[str] = set()
+    for source in sources:
+        allowed |= digit_tokens(source)
+    return digit_tokens(note_text) <= allowed
+
+
+# ---------------------------------------------------------------------------
+# Adding memories
+# ---------------------------------------------------------------------------
+
+def drop_invalid_links(new_memories: list[dict], existing: list[dict]) -> None:
+    now = datetime.now(timezone.utc)
+    for memory in new_memories:
+        memory["linked_ids"], dropped = valid_links(existing, memory["linked_ids"], now)
+        if dropped:
+            logger.warning("Dropped invalid memory links %s for %r", dropped, memory["text"])
+            memory["bad_links"] += dropped
+
+
+def select_grounded(new_memories: list[dict], sources: list[str]) -> list[dict]:
+    grounded = []
+    for memory in new_memories:
+        if is_grounded(memory["text"], sources):
+            grounded.append(memory)
+        else:
+            memory["status"] = "ungrounded"
+    return grounded
+
+
+async def store_memories(user_id: str, run_id: str, memories: list[dict], turn_id: str | None) -> None:
+    texts = []
+    for memory in memories:
+        texts.append(memory["text"])
+
+    vectors = await embeddings.aembed_documents(texts)
+    async with database() as db:
+        async with db.transaction():
+            for memory, vector in zip(memories, vectors):
+                inserted = await insert_memory(
+                    db, user_id, run_id, memory["text"], vector, memory["linked_ids"], turn_id)
+                memory["status"] = "added" if inserted else "duplicate"
+
 
 async def add_memories(user_id: str, run_id: str, message: str, recent: str = "",
                        turn_id: str | None = None) -> list[dict]:
-        """Extract memories from the user's new message and store the new ones.
+    """Extract memories from the user's new message and store the new ones.
 
-        Returns one dict per extracted memory: {"text", "linked_ids", "bad_links", "status"} where
-        status is "added", "duplicate" or "ungrounded". Raises on failure (LLM, embedding, database);
-        the memory_add node catches, logs and counts it, so a failed add never breaks an answer.
-        """
-        query_vec = await embeddings.aembed_query(message)
-        db = await get_connection()
-        try:
-            existing = await similar_memories(db, user_id, run_id, query_vec)
-        finally:
-            await db.close()
+    Returns one dict per extracted memory: {"text", "linked_ids", "bad_links", "status"} where
+    status is "added", "duplicate" or "ungrounded". Raises on failure (LLM, embedding, database);
+    the memory_add node catches, logs and counts it, so a failed add never breaks an answer.
+    """
+    query_vec = await embeddings.aembed_query(message)
+    async with database() as db:
+        existing = await similar_memories(db, user_id, run_id, query_vec)
 
-        new_memories = await extract_relevant_info(existing, recent, message)
-        if not new_memories:
-            return []
+    new_memories = await extract_relevant_info(existing, recent, message)
+    if not new_memories:
+        return []
 
-        # A link is stored only if it points at an existing, older memory; anything else is dropped and logged.
-        now = datetime.now(timezone.utc)
-        for memory in new_memories:
-            memory["linked_ids"], dropped = valid_links(existing, memory["linked_ids"], now)
-            if dropped:
-                logger.warning("Dropped invalid memory links %s for %r", dropped, memory["text"])
-                memory["bad_links"] += dropped
+    drop_invalid_links(new_memories, existing)
 
-        sources = [message] + [m["text"] for m in existing]
-        keep = []
-        for memory in new_memories:
-            if is_grounded(memory["text"], sources):
-                keep.append(memory)
-            else:
-                memory["status"] = "ungrounded"
-        if not keep:
-            return new_memories
+    sources = [message]
+    for memory in existing:
+        sources.append(memory["text"])
+    grounded = select_grounded(new_memories, sources)
+    if grounded:
+        await store_memories(user_id, run_id, grounded, turn_id)
+    return new_memories
 
-        vectors = await embeddings.aembed_documents([m["text"] for m in keep])
-        db = await get_connection()
-        try:
-            async with db.transaction():
-                for memory, vector in zip(keep, vectors):
-                    inserted = await insert_memory(
-                        db, user_id, run_id, memory["text"], vector, memory["linked_ids"], turn_id)
-                    memory["status"] = "added" if inserted else "duplicate"
-        finally:
-            await db.close()
-        return new_memories
+
+# ---------------------------------------------------------------------------
+# Searching memories
+# ---------------------------------------------------------------------------
+
+def to_keyword_query(query: str) -> str:
+    words = re.findall(r"[a-z0-9]+", query.lower())
+    return " | ".join(words)
+
+
+def score_rows(rows: list[dict]) -> None:
+    max_keyword = 0.0
+    for row in rows:
+        max_keyword = max(max_keyword, row["keyword"])
+
+    for row in rows:
+        if max_keyword > 0:
+            row["keyword_norm"] = row["keyword"] / max_keyword
+            row["score"] = (row["semantic"] + row["keyword_norm"]) / 2
+        else:
+            row["keyword_norm"] = 0.0
+            row["score"] = row["semantic"]
+
 
 async def search_memories(user_id: str, run_id: str, query: str,
                           top_k: int = 10, threshold: float = 0.1) -> list[dict]:
-    words = re.findall(r"[a-z0-9]+", query.lower())
-    ts_query = " | ".join(words)
-
+    keyword_query = to_keyword_query(query)
     query_vec = await embeddings.aembed_query(query)
-    db = await get_connection()
-    try:
-        rows = await db.fetch(SEARCH_SQL, user_id, run_id, to_vector_literal(query_vec), ts_query)
 
-        rows = [dict(r) for r in rows if r["semantic"] >= threshold]
-        kmax = max((r["keyword"] for r in rows), default=0.0)
-        for r in rows:
-            r["keyword_norm"] = r["keyword"] / kmax if kmax > 0 else 0.0
-            r["score"] = (r["semantic"] + r["keyword_norm"]) / 2 if kmax > 0 else r["semantic"]
+    async with database() as db:
+        rows = await db.fetch(SEARCH_SQL, user_id, run_id, to_vector_literal(query_vec), keyword_query)
+        candidates = []
+        for row in rows:
+            if row["semantic"] >= threshold:
+                candidates.append(dict(row))
+        score_rows(candidates)
+        top = sorted(candidates, key=lambda row: row["score"], reverse=True)[:top_k]
 
-        top = sorted(rows, key=lambda r: r["score"], reverse=True)[:top_k]
-        # Pull in the memories linked to the top ones, older and newer (same connection), so a memory that
-        # was corrected is hidden even when its correction was not recalled, and we can show what changed.
-        everything = await with_linked(lambda ids, recalled: linked_memories(db, user_id, run_id, ids, recalled), top)
-    finally:
-        await db.close()
+        async def fetch_linked(ids, recalled):
+            return await linked_memories(db, user_id, run_id, ids, recalled)
+
+        everything = await with_linked(fetch_linked, top)
 
     current = attach_earlier(current_memories(everything), everything)
-    return sorted(current, key=lambda r: r["created_at"])
+    return sorted(current, key=lambda row: row["created_at"])
